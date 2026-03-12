@@ -1,0 +1,3342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#03101f">
+<title>M32 Tactical</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #03101f;
+  --bg2:       #071829;
+  --bg3:       #0a1f33;
+  --surface:   #0d2540;
+  --surface2:  #112d4a;
+  --border:    #1a3a55;
+  --border2:   #245070;
+  --teal:      #00e5cc;
+  --teal2:     #00b8a4;
+  --teal3:     #006655;
+  --amber:     #ffb700;
+  --amber2:    #e67e00;
+  --red:       #ff4455;
+  --red2:      #cc2233;
+  --green:     #00e67a;
+  --green2:    #00994d;
+  --text:      #c8dff0;
+  --text2:     #7aadcc;
+  --text3:     #3d6e8a;
+  --white:     #eaf5ff;
+  --nav-h:     60px;
+  --safe-bot:  env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; }
+
+/* ── NAV ── */
+#nav {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+  height: calc(var(--nav-h) + var(--safe-bot));
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: flex-start; padding-top: 4px;
+  backdrop-filter: blur(12px);
+}
+.nav-btn {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; padding: 6px 4px; cursor: pointer; border: none; background: none;
+  color: var(--text3); transition: color 0.2s;
+  font-family: 'Orbitron', monospace; font-size: 9px; font-weight: 600; letter-spacing: 0.08em;
+}
+.nav-btn svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; transition: stroke 0.2s; }
+.nav-btn.active { color: var(--teal); }
+.nav-btn.active svg { stroke: var(--teal); filter: drop-shadow(0 0 6px var(--teal)); }
+.nav-btn:active { transform: scale(0.92); }
+
+/* ── PAGES ── */
+.page {
+  position: fixed; top: 0; left: 0; right: 0;
+  bottom: calc(var(--nav-h) + var(--safe-bot));
+  overflow-y: auto; overflow-x: hidden;
+  display: none; flex-direction: column;
+  background: var(--bg);
+  -webkit-overflow-scrolling: touch;
+}
+.page.active { display: flex; }
+#page-map { overflow: hidden; }
+
+/* ── PAGE HEADER ── */
+.page-header {
+  padding: 14px 16px 10px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.page-title { font-family: 'Orbitron', monospace; font-size: 13px; font-weight: 700; color: var(--teal); letter-spacing: 0.12em; }
+.page-subtitle { font-size: 11px; color: var(--text3); letter-spacing: 0.05em; margin-left: auto; }
+
+/* ── STATUS BAR ── */
+#status-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 16px; background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  font-family: 'Share Tech Mono', monospace; font-size: 10px;
+  flex-shrink: 0;
+}
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+.status-dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.4s ease-in-out infinite; }
+.status-dot.stale { background: var(--amber); }
+.status-dot.error { background: var(--red); }
+#status-text { color: var(--text2); flex: 1; }
+#last-update { color: var(--text3); margin-left: auto; }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* ── FORMS / CONFIG ── */
+.section { padding: 16px; border-bottom: 1px solid var(--border); }
+.section-label {
+  font-family: 'Orbitron', monospace; font-size: 10px; font-weight: 600;
+  color: var(--teal2); letter-spacing: 0.15em; text-transform: uppercase;
+  margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+}
+.section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.form-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: flex-start; }
+.form-group { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+.form-group.sm { flex: 0 0 80px; }
+.form-group.xs { flex: 0 0 60px; }
+label { font-size: 10px; color: var(--text3); letter-spacing: 0.05em; font-weight: 500; }
+input[type=text], input[type=number], select {
+  width: 100%; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--white); font-family: 'Share Tech Mono', monospace;
+  font-size: 13px; padding: 9px 11px; outline: none; transition: border-color 0.2s;
+  -webkit-appearance: none; appearance: none;
+}
+input:focus, select:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgba(0,229,204,0.12); }
+select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%233d6e8a' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px; }
+input[type=range] { width: 100%; accent-color: var(--teal); height: 4px; margin: 6px 0; }
+
+.btn {
+  border: none; border-radius: 7px; cursor: pointer; font-family: 'Orbitron', monospace;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; padding: 11px 16px;
+  transition: all 0.18s; display: flex; align-items: center; justify-content: center; gap: 7px;
+}
+.btn-primary { background: var(--teal); color: var(--bg); }
+.btn-primary:active { background: var(--teal2); transform: scale(0.96); }
+.btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:active { background: var(--border); transform: scale(0.96); }
+.btn-danger { background: rgba(255,68,85,0.15); color: var(--red); border: 1px solid rgba(255,68,85,0.3); }
+.btn-danger:active { background: rgba(255,68,85,0.25); transform: scale(0.96); }
+.btn-amber { background: rgba(255,183,0,0.12); color: var(--amber); border: 1px solid rgba(255,183,0,0.3); }
+.btn-amber:active { transform: scale(0.96); }
+.btn-full { width: 100%; }
+.btn-row { display: flex; gap: 10px; }
+.btn-row .btn { flex: 1; }
+
+/* compass wheel */
+.compass-wrap { display: flex; align-items: center; gap: 12px; }
+.compass-wrap canvas { flex-shrink: 0; }
+.compass-readout { font-family: 'Orbitron', monospace; font-size: 26px; font-weight: 700; color: var(--white); line-height: 1; }
+.compass-readout .card-dir { font-size: 12px; color: var(--teal); font-weight: 600; }
+
+/* wind slider group */
+.slider-row { display: flex; align-items: center; gap: 10px; }
+.slider-row input[type=range] { flex: 1; }
+.slider-val { font-family: 'Orbitron', monospace; font-size: 14px; font-weight: 700; color: var(--white); min-width: 44px; text-align: right; }
+
+/* ── DATA PAGE ── */
+#page-data { padding: 12px; gap: 10px; }
+
+.priority-cards { display: flex; flex-direction: column; gap: 8px; }
+.priority-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px; position: relative; overflow: hidden;
+  flex-shrink: 0;
+}
+.priority-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--teal);
+}
+.priority-card.bias-rc::before { background: var(--amber); }
+.priority-card.bias-pin::before { background: var(--teal); }
+.priority-card.balanced::before { background: var(--green); }
+.pc-label { font-size: 10px; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 500; margin-bottom: 4px; }
+.pc-value { font-family: 'Orbitron', monospace; font-size: 28px; font-weight: 900; color: var(--white); line-height: 1; }
+.pc-value.amber { color: var(--amber); }
+.pc-value.teal { color: var(--teal); }
+.pc-value.green { color: var(--green); }
+.pc-value.red { color: var(--red); }
+.pc-sub { font-size: 11px; color: var(--text2); margin-top: 3px; }
+.pc-badge {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  background: rgba(0,229,204,0.12); border: 1px solid rgba(0,229,204,0.25);
+  border-radius: 20px; padding: 4px 10px; font-family: 'Orbitron', monospace;
+  font-size: 10px; font-weight: 700; color: var(--teal); letter-spacing: 0.08em;
+}
+.pc-badge.amber { background: rgba(255,183,0,0.12); border-color: rgba(255,183,0,0.25); color: var(--amber); }
+.pc-badge.red { background: rgba(255,68,85,0.12); border-color: rgba(255,68,85,0.25); color: var(--red); }
+
+/* small grid cards */
+.data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.data-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+}
+.dc-label { font-size: 9px; color: var(--text3); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 3px; }
+.dc-value { font-family: 'Share Tech Mono', monospace; font-size: 15px; color: var(--white); font-weight: 400; }
+.dc-value.teal { color: var(--teal); }
+.dc-value.amber { color: var(--amber); }
+.dc-value.green { color: var(--green); }
+.dc-value.red { color: var(--red); }
+.dc-sub { font-size: 9px; color: var(--text3); margin-top: 2px; }
+
+/* reach dist row */
+.reach-dist-row { display: flex; gap: 8px; }
+.reach-dist-row .data-card { flex: 1; }
+.dist-bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 5px; overflow: hidden; }
+.dist-bar-fill { height: 100%; background: var(--teal); border-radius: 2px; transition: width 0.4s; }
+
+/* ping button on data page */
+.ping-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: rgba(0,229,204,0.08); border: 1px dashed var(--border2);
+  border-radius: 8px; padding: 10px; cursor: pointer; transition: all 0.2s;
+  font-size: 11px; color: var(--text2); font-weight: 500;
+}
+.ping-btn:active { background: rgba(0,229,204,0.18); transform: scale(0.97); }
+.ping-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+
+/* ── MAP PAGE ── */
+#map-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; touch-action: none; }
+#map-overlay {
+  position: absolute; top: 0; left: 0; right: 0; pointer-events: none;
+}
+.map-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px; background: rgba(3,16,31,0.85); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border); pointer-events: all;
+}
+.map-title { font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700; color: var(--teal); letter-spacing: 0.1em; }
+.map-orient-toggle {
+  margin-left: auto; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 10px; font-family: 'Orbitron', monospace;
+  font-size: 9px; color: var(--text2); cursor: pointer; font-weight: 600; letter-spacing: 0.05em;
+}
+.map-orient-toggle:active { background: var(--surface2); }
+
+/* ── MAP SIDE BUTTONS (left edge) ── */
+.map-side-btns {
+  position: absolute; left: 10px; top: 130px;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: all; z-index: 10;
+}
+.map-side-btn {
+  width: 40px; height: 40px;
+  background: rgba(3,16,31,0.9); border: 1px solid var(--border); backdrop-filter: blur(8px);
+  border-radius: 9px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 0.18s; color: var(--text2);
+}
+.map-side-btn:active { background: rgba(13,37,64,0.95); color: var(--teal); transform: scale(0.93); }
+.map-side-btn.active-rm { color: var(--amber); border-color: rgba(255,183,0,0.5); box-shadow: 0 0 10px rgba(255,183,0,0.2); }
+.map-side-btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; }
+
+.map-tap-hint {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: rgba(3,16,31,0.88); border: 1px solid var(--border2); backdrop-filter: blur(8px);
+  border-radius: 10px; padding: 14px 20px; text-align: center; pointer-events: none;
+  font-size: 12px; color: var(--text2); display: none;
+}
+.map-tap-hint.visible { display: block; animation: fadeIn 0.2s; }
+
+/* ── MAP WIND BADGE (tappable to edit) ── */
+#map-wind-badge {
+  position: absolute; top: 100px; right: 12px; pointer-events: all; cursor: pointer;
+  background: rgba(3,16,31,0.85); border: 1px solid var(--border); backdrop-filter: blur(6px);
+  border-radius: 8px; padding: 8px 10px; text-align: center;
+  transition: border-color 0.18s;
+}
+#map-wind-badge:active { border-color: var(--teal2); }
+.wind-badge-dir { font-family: 'Orbitron', monospace; font-size: 14px; font-weight: 900; color: var(--white); }
+.wind-badge-tws { font-size: 9px; color: var(--text3); margin-top: 2px; }
+.wind-badge-hint { font-size: 8px; color: var(--teal3); margin-top: 2px; letter-spacing: 0.05em; }
+
+/* ── WIND EDIT POPUP (map tab) ── */
+#wind-edit-popup {
+  display: none; position: absolute; top: 100px; right: 70px;
+  background: var(--surface); border: 1px solid var(--border2); backdrop-filter: blur(12px);
+  border-radius: 10px; padding: 12px 14px; pointer-events: all; z-index: 20; width: 200px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+#wind-edit-popup.visible { display: block; animation: fadeIn 0.15s; }
+.wep-label { font-size: 9px; color: var(--teal2); font-family: 'Orbitron', monospace;
+  letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px; }
+.wep-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wep-row label { font-size: 10px; color: var(--text3); min-width: 30px; }
+.wep-row input[type=number] { flex:1; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 5px; color: var(--white); font-family: 'Share Tech Mono', monospace;
+  font-size: 14px; padding: 5px 8px; outline: none; -webkit-appearance:none; appearance:none; }
+.wep-row input[type=number]:focus { border-color: var(--teal); }
+.wep-row input[type=range] { flex:1; accent-color: var(--teal); }
+.wep-apply { width:100%; margin-top:4px; padding:8px; border:none; border-radius:6px;
+  background:var(--teal); color:var(--bg); font-family:'Orbitron',monospace;
+  font-size:10px; font-weight:700; letter-spacing:0.08em; cursor:pointer; }
+.wep-apply:active { background:var(--teal2); transform:scale(0.97); }
+
+/* ── WIND EDIT STRIP (wind tab) ── */
+#wind-edit-strip {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; margin: 0 12px 12px;
+  flex-shrink: 0; cursor: pointer; transition: border-color 0.18s;
+}
+#wind-edit-strip:active { border-color: var(--teal2); }
+.wes-row { display: flex; align-items: center; justify-content: space-between; }
+.wes-label { font-family: 'Orbitron', monospace; font-size: 9px; color: var(--teal2); letter-spacing: 0.1em; }
+.wes-value { font-family: 'Share Tech Mono', monospace; font-size: 18px; color: var(--white); }
+.wes-hint { font-size: 9px; color: var(--text3); margin-top: 3px; }
+
+#wind-inline-edit {
+  display: none; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+#wind-inline-edit.visible { display: block; }
+.wie-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wie-row label { font-size: 10px; color: var(--text3); min-width: 32px; }
+.wie-row input[type=number] { flex:1; background:var(--bg3); border:1px solid var(--border);
+  border-radius:5px; color:var(--white); font-family:'Share Tech Mono',monospace;
+  font-size:14px; padding:5px 8px; outline:none; -webkit-appearance:none; appearance:none; }
+.wie-row input[type=number]:focus { border-color:var(--teal); }
+.wie-row input[type=range] { flex:1; accent-color:var(--teal); }
+.wie-apply { width:100%; padding:8px; border:none; border-radius:6px;
+  background:var(--teal); color:var(--bg); font-family:'Orbitron',monospace;
+  font-size:10px; font-weight:700; letter-spacing:0.08em; cursor:pointer; }
+.wie-apply:active { background:var(--teal2); transform:scale(0.97); }
+
+/* ── MARK TAP PICKER (on-map role assignment) ── */
+#mark-role-picker {
+  display: none; position: absolute; z-index: 25; pointer-events: all;
+  background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 10px; box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+  min-width: 160px;
+}
+#mark-role-picker.visible { display: block; animation: fadeIn 0.15s; }
+.mrp-title { font-family: 'Orbitron', monospace; font-size: 9px; color: var(--teal2);
+  letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px; text-align: center; }
+.mrp-sn { font-size: 10px; color: var(--text3); text-align: center; margin-bottom: 8px;
+  font-family: 'Share Tech Mono', monospace; }
+.mrp-btn {
+  display: block; width: 100%; padding: 7px 10px; margin-bottom: 4px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text2); font-family: 'Share Tech Mono', monospace; font-size: 12px;
+  text-align: left; cursor: pointer; transition: all 0.15s;
+}
+.mrp-btn:active { transform: scale(0.97); }
+.mrp-btn.active { border-color: var(--teal); color: var(--teal); background: rgba(0,229,204,0.08); }
+.mrp-btn.role-ww { border-left: 3px solid #00e5cc; }
+.mrp-btn.role-lw { border-left: 3px solid #00b8a4; }
+.mrp-btn.role-line { border-left: 3px solid #ffb700; }
+.mrp-btn.role-ignore { border-left: 3px solid #1a3a55; }
+.mrp-cancel { width: 100%; padding: 6px; background: none; border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text3); font-size: 11px; cursor: pointer; margin-top: 2px; }
+.mrp-cancel:active { background: var(--surface2); }
+
+/* ── WIND PAGE ── */
+#page-wind { padding: 14px; gap: 12px; }
+.wind-section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.wind-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.wind-row:last-child { border-bottom: none; }
+.wr-label { font-size: 11px; color: var(--text2); }
+.wr-value { font-family: 'Share Tech Mono', monospace; font-size: 14px; color: var(--white); }
+.wr-value.teal { color: var(--teal); }
+.wr-value.amber { color: var(--amber); }
+
+.confidence-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+.confidence-fill { height: 100%; border-radius: 3px; transition: width 0.5s; background: linear-gradient(90deg, var(--teal3), var(--teal)); }
+
+/* wind rose canvas */
+#wind-rose-wrap { display: flex; justify-content: center; }
+#wind-rose { border-radius: 50%; }
+
+/* cluster dots */
+.cluster-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.cluster-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+.cluster-card .cl-label { font-size: 9px; color: var(--text3); letter-spacing: 0.05em; margin-bottom: 4px; }
+.cluster-card .cl-val { font-family: 'Share Tech Mono', monospace; font-size: 16px; color: var(--white); }
+.cluster-card .cl-n { font-size: 9px; color: var(--text3); margin-top: 2px; }
+.cluster-card.port { border-color: rgba(255,68,85,0.35); }
+.cluster-card.stbd { border-color: rgba(0,230,122,0.35); }
+.cluster-card.port .cl-val { color: var(--red); }
+.cluster-card.stbd .cl-val { color: var(--green); }
+
+/* ── TOAST ── */
+#toast {
+  position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 10px 18px; font-size: 12px; color: var(--text);
+  z-index: 200; pointer-events: none; opacity: 0; transition: opacity 0.3s;
+  white-space: nowrap; max-width: calc(100vw - 40px); text-align: center;
+}
+#toast.show { opacity: 1; }
+#toast.ok { border-color: var(--teal); color: var(--teal); }
+#toast.err { border-color: var(--red); color: var(--red); }
+
+@keyframes fadeIn { from{opacity:0;transform:translate(-50%,-50%) scale(0.93)} to{opacity:1;transform:translate(-50%,-50%) scale(1)} }
+
+/* mark SN grid */
+.sn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sn-group { display: flex; flex-direction: column; gap: 5px; }
+.sn-group label { font-size: 10px; color: var(--text3); }
+
+/* section spacing */
+.section:last-child { border-bottom: none; }
+.spacer { height: 8px; flex-shrink: 0; }
+
+/* scrollable config */
+#page-config { padding-bottom: 20px; }
+
+/* ── MODE TOGGLE ── */
+.mode-toggle {
+  display: flex; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 8px; padding: 3px; gap: 3px;
+}
+.mode-btn {
+  flex: 1; padding: 8px 12px; border: none; border-radius: 6px; cursor: pointer;
+  font-family: 'Orbitron', monospace; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; transition: all 0.18s; background: none; color: var(--text3);
+}
+.mode-btn.active-live { background: var(--green); color: var(--bg); box-shadow: 0 0 12px rgba(0,230,122,0.3); }
+.mode-btn.active-replay { background: var(--amber); color: var(--bg); box-shadow: 0 0 12px rgba(255,183,0,0.3); }
+
+/* replay section */
+.replay-section { display: none; }
+.replay-section.visible { display: block; }
+
+/* ── REPLAY SCRUBBER ── */
+#replay-bar {
+  display: none; pointer-events: all;
+  padding: 10px 12px 6px;
+  background: rgba(3,16,31,0.92); border-top: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+#replay-bar.visible { display: block; }
+.scrubber-row { display: flex; align-items: center; gap: 8px; }
+#replay-scrubber {
+  flex: 1; -webkit-appearance: none; appearance: none; height: 4px;
+  background: linear-gradient(90deg, var(--amber) var(--pct, 0%), var(--border) var(--pct, 0%));
+  border-radius: 2px; outline: none; cursor: pointer;
+}
+#replay-scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--amber); border: 2px solid var(--bg); cursor: pointer;
+  box-shadow: 0 0 8px rgba(255,183,0,0.6);
+}
+.scrub-time { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--amber); min-width: 44px; text-align: right; }
+.scrub-label { font-family: 'Orbitron', monospace; font-size: 9px; color: var(--text3); letter-spacing: 0.08em; }
+.scrub-row2 { display: flex; justify-content: space-between; margin-top: 3px; }
+.scrub-start { font-size: 9px; color: var(--text3); font-family: 'Share Tech Mono', monospace; }
+.scrub-end { font-size: 9px; color: var(--text3); font-family: 'Share Tech Mono', monospace; }
+#chunk-loading { font-size: 9px; color: var(--amber); font-family: 'Orbitron', monospace; letter-spacing: 0.06em; min-width: 50px; text-align: center; }
+
+/* ── MARK ASSIGN (map-based, no modal) ── */
+.mab-chip {
+  font-size: 9px; font-family: 'Orbitron', monospace; letter-spacing: 0.06em;
+  padding: 3px 8px; border-radius: 10px; border: 1px solid var(--border);
+  color: var(--text3); background: var(--bg3); white-space: nowrap;
+}
+.mab-chip.set-ww  { color: #00e5cc; border-color: rgba(0,229,204,0.35); background: rgba(0,229,204,0.08); }
+.mab-chip.set-lw  { color: #00b8a4; border-color: rgba(0,184,164,0.35); background: rgba(0,184,164,0.08); }
+.mab-chip.set-line{ color: var(--amber); border-color: rgba(255,183,0,0.35); background: rgba(255,183,0,0.08); }
+
+/* replay mode indicator in header */
+.replay-badge {
+  background: rgba(255,183,0,0.15); border: 1px solid rgba(255,183,0,0.35);
+  border-radius: 5px; padding: 3px 8px; font-family: 'Orbitron', monospace;
+  font-size: 9px; font-weight: 700; color: var(--amber); letter-spacing: 0.1em;
+}
+
+/* boat trail on replay map */
+.trail-line { stroke-width: 1; stroke-opacity: 0.4; fill: none; }
+</style>
+</head>
+<body>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- ══════════════════════ PAGE: CONFIG ══════════════════════ -->
+<div class="page active" id="page-config">
+
+  <div class="page-header">
+    <div class="page-title">M32 TACTICAL</div>
+    <div id="config-status-dot" class="status-dot" style="margin-left:auto"></div>
+    <div id="config-status-txt" style="font-size:10px;color:var(--text3);font-family:'Share Tech Mono',monospace">NOT CONNECTED</div>
+  </div>
+
+  <!-- Mode Toggle + Source -->
+  <div class="section">
+    <div class="section-label">Mode</div>
+    <div class="mode-toggle" style="margin-bottom:14px">
+      <button class="mode-btn active-live" id="mode-live-btn" onclick="setMode('live')">&#9679; LIVE</button>
+      <button class="mode-btn" id="mode-replay-btn" onclick="setMode('replay')">&#9194; REPLAY</button>
+    </div>
+
+    <!-- LIVE section -->
+    <div id="live-section">
+      <div class="section-label" style="margin-bottom:8px">Telemetry Source</div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>RaceSense Event URL or Event ID</label>
+        <input type="text" id="cfg-event-input" placeholder="paste URL or event ID" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="form-row">
+        <div class="form-group sm">
+          <label>Division</label>
+          <input type="text" id="cfg-division" value="M32">
+        </div>
+        <div class="form-group sm">
+          <label>Poll (sec)</label>
+          <select id="cfg-poll">
+            <option value="10">10s</option>
+            <option value="30" selected>30s</option>
+            <option value="60">60s</option>
+          </select>
+        </div>
+        <div class="form-group" style="justify-content:flex-end;padding-top:18px">
+          <button class="btn btn-primary" id="connect-btn" onclick="startPolling()">CONNECT</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- REPLAY section -->
+    <div id="replay-section" style="display:none">
+      <div class="section-label" style="margin-bottom:8px">Replay Source</div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>RaceSense Event URL or Event ID</label>
+        <input type="text" id="cfg-replay-event" placeholder="paste URL or event ID" inputmode="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Division</label>
+          <input type="text" id="cfg-replay-division" value="M32">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Race Start Date</label>
+          <input type="date" id="cfg-replay-date" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--white);font-family:'Share Tech Mono',monospace;font-size:13px;padding:9px 11px;outline:none;width:100%;-webkit-appearance:none;appearance:none;color-scheme:dark">
+        </div>
+        <div class="form-group sm">
+          <label>Start Time (local)</label>
+          <input type="time" id="cfg-replay-time" value="12:00" style="background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--white);font-family:'Share Tech Mono',monospace;font-size:13px;padding:9px 11px;outline:none;width:100%;-webkit-appearance:none;appearance:none;color-scheme:dark">
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:10px;padding:8px;background:rgba(255,183,0,0.06);border:1px solid rgba(255,183,0,0.15);border-radius:6px">
+        3-hour window from start time. Boat positions fetched in 5-min chunks as you scrub.
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-amber btn-full" onclick="startReplay()">
+          LOAD &amp; SCAN MARKS
+        </button>
+      </div>
+      <div id="replay-scan-status" style="font-size:10px;color:var(--text3);margin-top:8px;text-align:center;font-family:'Share Tech Mono',monospace"></div>
+    </div>
+  </div>
+
+  <!-- Wind Settings -->
+  <div class="section">
+    <div class="section-label">Wind</div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:8px">Direction (° true) — drag dial or type</label>
+      <div class="compass-wrap">
+        <canvas id="compass-dial" width="80" height="80"></canvas>
+        <div>
+          <input type="number" id="cfg-wind-dir" min="0" max="360" value="180" style="width:90px;font-size:22px;padding:8px 10px" oninput="onWindDirInput(this.value)">
+          <div id="cfg-wind-card" style="font-size:11px;color:var(--teal);font-family:'Orbitron',monospace;margin-top:4px;letter-spacing:0.1em">S</div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <label style="font-size:10px;color:var(--text3);display:block;margin-bottom:6px">TWS (knots)</label>
+      <div class="slider-row">
+        <input type="range" id="cfg-tws" min="4" max="30" value="12" step="1" oninput="document.getElementById('cfg-tws-val').textContent=this.value+'kt'">
+        <div class="slider-val" id="cfg-tws-val">12kt</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mark SNs -->
+  <div class="section">
+    <div class="section-label">Mark Serial Numbers</div>
+    <div class="sn-grid" style="margin-bottom:10px">
+      <div class="sn-group"><label>WW Port SN</label><input type="number" id="sn-ww0" placeholder="e.g. 13498"></div>
+      <div class="sn-group"><label>WW Stbd SN</label><input type="number" id="sn-ww1" placeholder="e.g. 15255"></div>
+      <div class="sn-group"><label>LW Port SN</label><input type="number" id="sn-lw0" placeholder="e.g. 15025"></div>
+      <div class="sn-group"><label>LW Stbd SN</label><input type="number" id="sn-lw1" placeholder="e.g. 15205"></div>
+      <div class="sn-group"><label>RC Boat SN</label><input type="number" id="sn-rc" placeholder="e.g. 13201"></div>
+      <div class="sn-group"><label>Pin End SN</label><input type="number" id="sn-pin" placeholder="e.g. 14293"></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="saveVenue()">SAVE VENUE</button>
+      <button class="btn btn-secondary" onclick="loadVenue()">LOAD SAVED</button>
+    </div>
+  </div>
+
+  <!-- Excluded SNs -->
+  <div class="section">
+    <div class="section-label">Excluded Sail Numbers</div>
+    <div class="form-group">
+      <label>Comma-separated (RC, chase boats)</label>
+      <input type="text" id="cfg-excluded" value="01,98,99" placeholder="01,98,99">
+    </div>
+  </div>
+
+  <!-- Reach Mark GPS -->
+  <div class="section">
+    <div class="section-label">Reach Mark</div>
+    <div id="reach-status-cfg" style="font-size:11px;color:var(--text3);margin-bottom:10px">Not set — tap map to place, or use GPS ping</div>
+    <div class="btn-row">
+      <button class="btn btn-amber btn-full" onclick="pingGPS('cfg')">
+        <svg width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/><line x1="12" y1="2" x2="12" y2="0"/><line x1="12" y1="24" x2="12" y2="22"/><line x1="2" y1="12" x2="0" y2="12"/><line x1="24" y1="12" x2="22" y2="12"/></svg>
+        PING MY GPS
+      </button>
+      <button class="btn btn-danger" onclick="clearReachMark()">CLEAR</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════ PAGE: MAP ══════════════════════ -->
+<div class="page" id="page-map">
+  <canvas id="map-canvas"></canvas>
+  <div id="map-overlay">
+    <div class="map-header">
+      <div class="map-title">COURSE MAP</div>
+      <div id="replay-map-badge" class="replay-badge" style="display:none">REPLAY</div>
+      <div id="map-status" style="font-size:10px;color:var(--text3);font-family:'Share Tech Mono',monospace">––</div>
+      <button class="map-orient-toggle" id="orient-btn" onclick="toggleOrientation()">COURSE-UP</button>
+    </div>
+
+    <!-- Wind badge — tap to edit -->
+    <div id="map-wind-badge" onclick="toggleWindEditPopup()">
+      <div id="mbadge-arrow" style="display:flex;justify-content:center;margin-bottom:2px"></div>
+      <div class="wind-badge-dir" id="mbadge-dir">–––</div>
+      <div class="wind-badge-tws" id="mbadge-tws">––kt</div>
+      <div class="wind-badge-hint">tap to edit</div>
+    </div>
+
+    <!-- Wind edit popup -->
+    <div id="wind-edit-popup">
+      <div class="wep-label">Set Wind</div>
+      <div class="wep-row">
+        <label>Dir °</label>
+        <input type="number" id="wep-dir" min="0" max="360" value="180" oninput="syncWindEditPopup()">
+      </div>
+      <div class="wep-row">
+        <label>TWS</label>
+        <input type="range" id="wep-tws" min="4" max="30" value="12" step="1" oninput="document.getElementById('wep-tws-val').textContent=this.value+'kt'">
+        <span id="wep-tws-val" style="font-size:11px;color:var(--white);min-width:32px;font-family:'Share Tech Mono',monospace">12kt</span>
+      </div>
+      <button class="wep-apply" onclick="applyWindEditPopup()">APPLY</button>
+    </div>
+
+    <div id="map-tap-hint" class="map-tap-hint">Tap to place<br><b>reach mark</b></div>
+
+    <!-- REPLAY SCRUBBER (shown only in replay mode) -->
+    <div id="replay-bar">
+      <div class="scrubber-row">
+        <div class="scrub-label">REPLAY</div>
+        <input type="range" id="replay-scrubber" min="0" max="180" value="0" step="1"
+          oninput="onScrub(this.value)" style="--pct:0%">
+        <div class="scrub-time" id="scrub-time-display">+0:00</div>
+        <div id="chunk-loading"></div>
+      </div>
+      <div class="scrub-row2">
+        <span class="scrub-start" id="scrub-label-start">––:––</span>
+        <span style="font-size:9px;color:var(--text3)">3h window</span>
+        <span class="scrub-end" id="scrub-label-end">––:––</span>
+      </div>
+    </div>
+
+    <!-- Side buttons (left edge) -->
+    <div class="map-side-btns">
+      <!-- Place reach mark -->
+      <div class="map-side-btn" id="place-rm-btn" onclick="toggleReachMarkMode()" title="Place reach mark">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+      </div>
+      <!-- GPS ping (hidden in replay mode) -->
+      <div class="map-side-btn" id="gps-ping-btn" onclick="pingGPS('map')" title="GPS ping → reach mark">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" stroke-dasharray="2 2.5"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+      </div>
+      <!-- Clear reach mark -->
+      <div class="map-side-btn" onclick="clearReachMark()" title="Clear reach mark">
+        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </div>
+      <!-- Reset zoom (shown when zoomed) -->
+      <div class="map-side-btn" onclick="resetMapZoom()" title="Reset zoom" id="zoom-reset-btn" style="display:none">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><line x1="20" y1="20" x2="15.5" y2="15.5"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+      </div>
+    </div>
+
+    <!-- Mark tap-to-assign role picker -->
+    <div id="mark-role-picker">
+      <div class="mrp-title">Assign Mark</div>
+      <div class="mrp-sn" id="mrp-sn-label">SN ––</div>
+      <button class="mrp-btn role-ww" data-role="WW-port" onclick="assignMarkRole('WW-port')">WW Port</button>
+      <button class="mrp-btn role-ww" data-role="WW-stbd" onclick="assignMarkRole('WW-stbd')">WW Stbd</button>
+      <button class="mrp-btn role-lw" data-role="LW-port" onclick="assignMarkRole('LW-port')">LW Port</button>
+      <button class="mrp-btn role-lw" data-role="LW-stbd" onclick="assignMarkRole('LW-stbd')">LW Stbd</button>
+      <button class="mrp-btn role-line" data-role="RC" onclick="assignMarkRole('RC')">RC Boat</button>
+      <button class="mrp-btn role-line" data-role="PIN" onclick="assignMarkRole('PIN')">Pin End</button>
+      <button class="mrp-btn role-ignore" data-role="ignore" onclick="assignMarkRole('ignore')">Ignore</button>
+      <button class="mrp-cancel" onclick="closeMarkRolePicker()">Cancel</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════ MARK ASSIGN MODAL ══════════════════════ -->
+<!-- ══════════════════════ SCAN LOADING OVERLAY ══════════════════════ -->
+<div id="scan-overlay" style="display:none; position:fixed; inset:0; z-index:400;
+  background:rgba(3,16,31,0.96); backdrop-filter:blur(16px);
+  flex-direction:column; align-items:center; justify-content:center; gap:18px;">
+  <div style="font-family:'Orbitron',monospace; font-size:11px; font-weight:700; color:var(--teal); letter-spacing:0.18em; text-transform:uppercase">Scanning Marks</div>
+  <div style="width:240px; height:3px; background:var(--border); border-radius:2px; overflow:hidden">
+    <div id="scan-fill" style="height:100%; width:0%; background:var(--teal); border-radius:2px; transition:width 0.3s"></div>
+  </div>
+  <div id="scan-progress-txt" style="font-family:'Share Tech Mono',monospace; font-size:11px; color:var(--text2); text-align:center; max-width:280px; line-height:1.5"></div>
+</div>
+
+<!-- ══════════════════════ MARK ASSIGN BANNER ══════════════════════ -->
+<!-- Shown over the map during mark assignment mode -->
+<div id="mark-assign-banner" style="display:none; position:fixed;
+  bottom:calc(var(--nav-h) + var(--safe-bot) + 10px); left:12px; right:12px; z-index:50;
+  background:rgba(7,24,41,0.97); border:1px solid var(--border2); border-radius:10px;
+  padding:10px 14px; backdrop-filter:blur(12px);">
+  <div style="display:flex; align-items:center; gap:10px">
+    <div style="flex:1">
+      <div style="font-family:'Orbitron',monospace; font-size:9px; color:var(--teal2); letter-spacing:0.12em; margin-bottom:3px" id="mab-instruction">TAP A MARK TO ASSIGN ITS ROLE</div>
+      <div id="mab-chips" style="display:flex; gap:5px; flex-wrap:wrap; margin-top:4px"></div>
+    </div>
+    <button onclick="confirmMarkAssignments()" style="flex-shrink:0; background:var(--teal); color:var(--bg);
+      border:none; border-radius:7px; padding:9px 16px; font-family:'Orbitron',monospace;
+      font-size:10px; font-weight:700; letter-spacing:0.08em; cursor:pointer">CONFIRM</button>
+  </div>
+</div>
+
+<!-- ══════════════════════ PAGE: DATA ══════════════════════ -->
+<div class="page" id="page-data">
+
+  <div style="flex-shrink:0">
+    <div id="status-bar">
+      <div class="status-dot" id="data-dot"></div>
+      <div id="status-text">Not connected</div>
+      <div id="last-update">––</div>
+    </div>
+  </div>
+
+  <!-- PRIORITY CARDS -->
+  <div class="priority-cards" id="priority-cards" style="flex-shrink:0;padding:0 12px 0">
+
+    <!-- Optimal Start — canvas diagram + TWA -->
+    <div class="priority-card" id="pc-opt" style="padding-bottom:10px">
+      <div class="pc-label">Optimal Start Position</div>
+      <div style="margin-top:4px">
+        <!-- Heat bar canvas -->
+        <canvas id="start-line-canvas" height="44" style="width:100%;display:block"></canvas>
+        <!-- PIN excess left, RC excess right — always red -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+          <div style="display:flex;align-items:center;gap:3px">
+            <span style="font-size:9px;color:var(--text3)">PIN</span>
+            <span id="pc-opt-pin-excess" style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--red)">––</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:3px">
+            <span id="pc-opt-rc-excess" style="font-family:'Orbitron',monospace;font-size:11px;font-weight:700;color:var(--red)">––</span>
+            <span style="font-size:9px;color:var(--text3)">RC</span>
+          </div>
+        </div>
+        <!-- TWA centred below -->
+        <div style="text-align:center;margin-top:6px;border-top:1px solid var(--border);padding-top:6px">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.06em;text-transform:uppercase">Reach TWA</div>
+          <div class="pc-value teal" id="pc-reach-twa" style="font-size:26px;line-height:1.1">––°</div>
+          <div style="font-size:9px;color:var(--text3);margin-top:1px">mid → RM</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reach Leg Asymmetry -->
+    <div class="priority-card" id="pc-reach">
+      <div class="pc-label">Reach Leg Asymmetry</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+        <div style="flex:1">
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Pin → RM</div>
+          <div class="pc-value" id="pc-reach-pin" style="font-size:13px">––</div>
+        </div>
+        <div style="text-align:center;min-width:64px">
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">Diff</div>
+          <div class="pc-value" id="pc-reach-diff" style="font-size:26px;line-height:1.1">––</div>
+          <div id="pc-reach-pct" style="font-family:'Orbitron',monospace;font-size:10px;font-weight:700;margin-top:2px;color:var(--text2)">––</div>
+        </div>
+        <div style="flex:1;text-align:right">
+          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">RC → RM</div>
+          <div class="pc-value" id="pc-reach-rc" style="font-size:13px">––</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LW Gate Bias -->
+    <div class="priority-card" id="pc-lw-gate">
+      <div class="pc-label">LW Gate Bias</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+        <div style="flex:1">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.06em">GATE AXIS</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">perp</div>
+          <div class="pc-value teal" id="pc-lw-perp" style="font-size:26px">––°</div>
+          <div style="font-size:9px;color:var(--text3);margin-top:1px">axis <span id="pc-lw-axis" style="color:var(--text2);font-size:11px">––°</span></div>
+        </div>
+        <div style="width:1px;height:50px;background:var(--border)"></div>
+        <div style="flex:1;text-align:center">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.06em">BIAS</div>
+          <div class="pc-value" id="pc-lw-bias-m" style="font-size:26px">––</div>
+          <div id="pc-lw-bias-side" style="font-family:'Orbitron',monospace;font-size:13px;font-weight:700;color:var(--green);margin-top:2px">––</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WW Gate Bias -->
+    <div class="priority-card" id="pc-ww-gate">
+      <div class="pc-label">WW Gate Bias</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+        <div style="flex:1">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.06em">GATE AXIS</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">perp</div>
+          <div class="pc-value teal" id="pc-ww-perp" style="font-size:26px">––°</div>
+          <div style="font-size:9px;color:var(--text3);margin-top:1px">axis <span id="pc-ww-axis" style="color:var(--text2);font-size:11px">––°</span></div>
+        </div>
+        <div style="width:1px;height:50px;background:var(--border)"></div>
+        <div style="flex:1;text-align:center">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.06em">BIAS</div>
+          <div class="pc-value" id="pc-ww-bias-m" style="font-size:26px">––</div>
+          <div id="pc-ww-bias-side" style="font-family:'Orbitron',monospace;font-size:13px;font-weight:700;color:var(--green);margin-top:2px">––</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Course Axis + Wind -->
+    <div class="priority-card balanced" id="pc-course">
+      <div class="pc-label">Course & Wind</div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+        <div style="flex:1">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.06em">COURSE AXIS</div>
+          <div class="pc-value teal" id="pc-course-axis" style="font-size:26px">––°</div>
+          <div class="pc-sub" id="pc-course-axis-card">LW → WW</div>
+        </div>
+        <div style="width:1px;height:50px;background:var(--border)"></div>
+        <div style="flex:1;text-align:right">
+          <div style="font-size:9px;color:var(--text3);letter-spacing:.06em">WIND</div>
+          <div class="pc-value amber" id="pc-course-wind" style="font-size:26px">––°</div>
+          <div class="pc-sub" id="pc-course-wind-sub">blended</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="spacer" style="flex-shrink:0"></div>
+
+  <!-- GPS PING -->
+  <div style="padding:0 12px;flex-shrink:0">
+    <div class="ping-btn" onclick="pingGPS('data')">
+      <div class="dot"></div>
+      PING GPS → SET REACH MARK
+    </div>
+  </div>
+
+  <div class="spacer" style="flex-shrink:0"></div>
+
+  <!-- SMALL DATA GRID — wind data only (course/gate/reach now in priority cards) -->
+  <div class="data-grid" id="data-grid" style="padding:0 12px;flex-shrink:0">
+    <div class="data-card"><div class="dc-label">Wind Inferred</div><div class="dc-value" id="dc-wind-inf">––°</div><div class="dc-sub" id="dc-wind-inf-conf">conf: ––</div></div>
+    <div class="data-card"><div class="dc-label">Wind (User Set)</div><div class="dc-value teal" id="dc-wind-user">––°</div><div class="dc-sub" id="dc-wind-user-tws">––kt</div></div>
+    <div class="data-card"><div class="dc-label">Blended Wind</div><div class="dc-value amber" id="dc-wind-blend">––°</div><div class="dc-sub" id="dc-wind-blend-src">––</div></div>
+    <div class="data-card"><div class="dc-label">Start Line Len</div><div class="dc-value" id="dc-line-len">––m</div><div class="dc-sub">RC to Pin</div></div>
+  </div>
+
+  <div class="spacer" style="flex-shrink:0; height:16px"></div>
+</div>
+
+<!-- ══════════════════════ PAGE: WIND ══════════════════════ -->
+<div class="page" id="page-wind">
+
+  <div class="page-header">
+    <div class="page-title">WIND ANALYSIS</div>
+    <div class="page-subtitle" id="wind-page-boats">0 boats</div>
+  </div>
+
+  <!-- Wind edit strip — tap to expand -->
+  <div id="wind-edit-strip" onclick="toggleWindInlineEdit()">
+    <div class="wes-row">
+      <div>
+        <div class="wes-label">User Wind</div>
+        <div class="wes-value"><span id="wes-dir">180°</span> <span style="font-size:13px;color:var(--teal)" id="wes-card">S</span> · <span id="wes-tws" style="font-size:13px">12kt</span></div>
+      </div>
+      <div style="font-size:10px;color:var(--teal2);font-family:'Orbitron',monospace;letter-spacing:0.06em">TAP TO EDIT ›</div>
+    </div>
+    <div id="wind-inline-edit">
+      <div class="wie-row">
+        <label>Dir °</label>
+        <input type="number" id="wie-dir" min="0" max="360" value="180" oninput="syncWindInlineEdit()">
+      </div>
+      <div class="wie-row">
+        <label>TWS</label>
+        <input type="range" id="wie-tws" min="4" max="30" value="12" step="1" oninput="document.getElementById('wie-tws-val').textContent=this.value+'kt'">
+        <span id="wie-tws-val" style="font-size:11px;color:var(--white);min-width:32px;font-family:'Share Tech Mono',monospace">12kt</span>
+      </div>
+      <button class="wie-apply" onclick="applyWindInlineEdit()">APPLY</button>
+    </div>
+  </div>
+
+  <div class="wind-section" style="margin:0 12px 12px;flex-shrink:0">
+    <div class="wind-row">
+      <span class="wr-label">Blended Wind Direction</span>
+      <span class="wr-value teal" id="wpage-blend">–––°</span>
+    </div>
+    <div class="wind-row">
+      <span class="wr-label">User Set</span>
+      <span class="wr-value" id="wpage-user">–––°</span>
+    </div>
+    <div class="wind-row">
+      <span class="wr-label">Inferred from Fleet</span>
+      <span class="wr-value" id="wpage-inf">–––°</span>
+    </div>
+    <div class="wind-row">
+      <span class="wr-label">Difference</span>
+      <span class="wr-value" id="wpage-diff">–––°</span>
+    </div>
+    <div class="wind-row">
+      <span class="wr-label">Blend Method</span>
+      <span class="wr-value amber" id="wpage-method">––</span>
+    </div>
+    <div style="margin-top:10px">
+      <div style="font-size:10px;color:var(--text3);margin-bottom:5px">Inference Confidence</div>
+      <div class="confidence-bar"><div class="confidence-fill" id="wpage-conf-bar" style="width:0%"></div></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px" id="wpage-conf-txt">0%</div>
+    </div>
+  </div>
+
+  <div id="wind-rose-wrap" style="padding:0 12px;flex-shrink:0">
+    <canvas id="wind-rose" width="240" height="240"></canvas>
+  </div>
+
+  <div style="padding:0 12px;flex-shrink:0">
+    <div style="font-size:10px;color:var(--text3);margin-bottom:6px;letter-spacing:0.08em;text-transform:uppercase">Heading Clusters</div>
+    <div class="cluster-grid" id="cluster-grid">
+      <div class="cluster-card port"><div class="cl-label">UW PORT</div><div class="cl-val" id="cl-uw-port">––°</div><div class="cl-n" id="cl-uw-port-n">n=0</div></div>
+      <div class="cluster-card stbd"><div class="cl-label">UW STBD</div><div class="cl-val" id="cl-uw-stbd">––°</div><div class="cl-n" id="cl-uw-stbd-n">n=0</div></div>
+      <div class="cluster-card port"><div class="cl-label">DW PORT</div><div class="cl-val" id="cl-dw-port">––°</div><div class="cl-n" id="cl-dw-port-n">n=0</div></div>
+      <div class="cluster-card stbd"><div class="cl-label">DW STBD</div><div class="cl-val" id="cl-dw-stbd">––°</div><div class="cl-n" id="cl-dw-stbd-n">n=0</div></div>
+    </div>
+  </div>
+
+  <div class="spacer" style="height:16px;flex-shrink:0"></div>
+</div>
+
+<!-- ══════════════════════ BOTTOM NAV ══════════════════════ -->
+<nav id="nav">
+  <button class="nav-btn active" id="nav-config" onclick="switchTab('config')">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"/></svg>
+    CONFIG
+  </button>
+  <button class="nav-btn" id="nav-map" onclick="switchTab('map')">
+    <svg viewBox="0 0 24 24"><polygon points="3,6 9,3 15,6 21,3 21,18 15,21 9,18 3,21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
+    MAP
+  </button>
+  <button class="nav-btn" id="nav-data" onclick="switchTab('data')">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    DATA
+  </button>
+  <button class="nav-btn" id="nav-wind" onclick="switchTab('wind')">
+    <svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
+    WIND
+  </button>
+</nav>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  CONSTANTS & STATE
+// ═══════════════════════════════════════════════════════════
+const D2R = Math.PI / 180;
+const RE  = 6371000;
+
+const STATE = {
+  // shared
+  eventId: '',
+  division: 'M32',
+  mode: 'live',  // 'live' | 'replay'
+  marks: { WW: [], LW: [], RC: null, PIN: null, _candidates: [] },
+  reachMark: null,
+  tracks: {},
+  windUser: 180,
+  twsUser: 12,
+  // mark tap state
+  _markHitAreas: [],    // [{mark, role, x, y, r, label}]
+  _activeTapMark: null, // the mark being assigned
+  windInferred: null,
+  windBlended: null,
+  orientCourseUp: true,
+  placingReach: false,
+  mapProjection: null,
+  excluded: new Set(['01','98','99']),
+  lastPollTime: null,
+  connected: false,
+  // live mode
+  pollSec: 30,
+  pollTimer: null,
+  // replay mode
+  replayStartTs: null,    // unix ms of window start
+  replayWindowMs: 3 * 60 * 60 * 1000,  // 3h
+  replayScrubTs: null,    // current scrub position (unix ms)
+  replayChunkCache: {},   // key: bucket index -> processed data
+  replayFetching: false,
+  replayBoatPositions: {}, // sail -> {lat,lon,cog,sog} at scrub time
+  replayFoundMarks: [],   // raw discovered marks from scan
+  replayScanDone: false,
+  markAssignMode: false,   // true while user is picking mark roles on map
+  mapView: { zoom: 1, panX: 0, panY: 0 },  // canvas zoom/pan state
+};
+
+const GATE_SNS = {
+  WW: [null, null],
+  LW: [null, null],
+  RC: null,
+  PIN: null,
+};
+
+// M32 Polar (abbreviated keys 6-22kt)
+const M32_POLAR = {"6":{"50":9.2,"55":9.35,"60":9.5,"65":9.65,"70":9.8,"75":9.9,"80":9.95,"85":9.98,"90":10.0,"95":10.5,"100":11.0,"105":11.15,"110":11.25,"115":11.2,"120":11.0,"125":10.7,"130":10.4,"135":10.0,"140":9.9,"145":9.8,"150":9.7},"8":{"50":10.06,"55":10.15,"60":10.23,"65":10.35,"70":10.47,"75":10.97,"80":11.45,"85":11.77,"90":12.08,"95":12.56,"100":13.04,"105":13.04,"110":13.12,"115":13.11,"120":13.1,"125":12.86,"130":12.61,"135":12.41,"140":12.41,"145":12.47,"150":12.54},"10":{"50":10.93,"55":10.94,"60":10.96,"65":11.05,"70":11.13,"75":12.05,"80":12.95,"85":13.56,"90":14.16,"95":14.63,"100":15.08,"105":14.93,"110":14.98,"115":15.01,"120":15.19,"125":15.01,"130":14.81,"135":14.81,"140":14.91,"145":15.15,"150":15.38},"12":{"50":11.79,"55":11.74,"60":11.69,"65":11.75,"70":11.8,"75":13.12,"80":14.45,"85":15.35,"90":16.25,"95":16.69,"100":17.12,"105":16.83,"110":16.54,"115":16.92,"120":17.29,"125":17.16,"130":17.02,"135":17.22,"140":17.42,"145":17.82,"150":18.22},"14":{"50":12.19,"55":12.23,"60":12.29,"65":12.46,"70":12.64,"75":13.9,"80":15.62,"85":16.2,"90":17.16,"95":17.71,"100":18.22,"105":18.08,"110":17.93,"115":18.3,"120":18.65,"125":18.78,"130":18.54,"135":18.74,"140":18.92,"145":19.26,"150":19.58},"16":{"50":12.59,"55":12.72,"60":12.89,"65":13.17,"70":13.48,"75":14.69,"80":16.39,"85":17.05,"90":18.07,"95":18.72,"100":19.31,"105":19.33,"110":19.32,"115":19.68,"120":20.02,"125":20.4,"130":20.05,"135":20.25,"140":20.41,"145":20.69,"150":20.93},"18":{"50":13.0,"55":13.22,"60":13.5,"65":13.88,"70":14.32,"75":15.47,"80":17.16,"85":17.9,"90":18.98,"95":19.73,"100":20.41,"105":20.58,"110":20.7,"115":21.06,"120":21.38,"125":22.02,"130":21.57,"135":21.77,"140":21.91,"145":22.13,"150":22.29},"20":{"50":13.4,"55":13.71,"60":14.1,"65":14.59,"70":15.16,"75":16.26,"80":17.93,"85":18.75,"90":19.89,"95":20.75,"100":21.5,"105":21.83,"110":22.09,"115":22.44,"120":22.74,"125":23.64,"130":23.08,"135":23.28,"140":23.4,"145":23.56,"150":23.64},"22":{"50":13.8,"55":14.2,"60":14.7,"65":15.3,"70":16.0,"75":17.0,"80":18.3,"85":19.6,"90":20.8,"95":21.8,"100":22.6,"105":23.1,"110":23.5,"115":23.8,"120":24.1,"125":24.4,"130":24.6,"135":24.8,"140":24.9,"145":25.0,"150":25.0}};
+const M32_POLAR_TWS = [6,8,10,12,14,16,18,20,22];
+const M32_POLAR_TWA_MIN = 50;
+const M32_POLAR_TWA_MAX = 150;
+
+// ═══════════════════════════════════════════════════════════
+//  MATH HELPERS
+// ═══════════════════════════════════════════════════════════
+function hav(a,b,c,d){const dL=(c-a)*D2R,dO=(d-b)*D2R,x=Math.sin(dL/2)**2+Math.cos(a*D2R)*Math.cos(c*D2R)*Math.sin(dO/2)**2;return RE*2*Math.asin(Math.sqrt(x))}
+function brg(a,b,c,d){const dO=(d-b)*D2R,x=Math.sin(dO)*Math.cos(c*D2R),y=Math.cos(a*D2R)*Math.sin(c*D2R)-Math.sin(a*D2R)*Math.cos(c*D2R)*Math.cos(dO);return(Math.atan2(x,y)/D2R+360)%360}
+function angDiff(a,b){return((a-b+540)%360)-180}
+function circMean(angles){let sx=0,sy=0;for(const a of angles){sx+=Math.cos(a*D2R);sy+=Math.sin(a*D2R)}return(Math.atan2(sy,sx)/D2R+360)%360}
+function weightedCircMean(items){
+  if(!items||!items.length) return null;
+  let sx=0,sy=0;
+  for(const it of items){const w=it.weight||1,a=it.angle;sx+=Math.cos(a*D2R)*w;sy+=Math.sin(a*D2R)*w;}
+  return(Math.atan2(sy,sx)/D2R+360)%360;
+}
+function circBlend(a,wa,b,wb){
+  const sx=Math.cos(a*D2R)*wa+Math.cos(b*D2R)*wb;
+  const sy=Math.sin(a*D2R)*wa+Math.sin(b*D2R)*wb;
+  return(Math.atan2(sy,sx)/D2R+360)%360;
+}
+function card(d){const c=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];return c[Math.round(((d%360)+360)%360/22.5)%16]}
+function offsetPos(lat,lon,bearing,distM){const b=bearing*D2R;const nlat=lat+(distM/RE)/D2R;const nlon=lon+(distM/(RE*Math.cos(lat*D2R)))/D2R*Math.sin(b);return{lat:lat+distM*Math.cos(b)/RE/D2R,lon:lon+distM*Math.sin(b)/(RE*Math.cos(lat*D2R))/D2R}}
+
+function polarSpeed(twa, tws){
+  const t = Math.round(Math.max(M32_POLAR_TWA_MIN, Math.min(M32_POLAR_TWA_MAX, twa)) / 5) * 5;
+  const twsList = M32_POLAR_TWS;
+  if(tws <= twsList[0]) return +(M32_POLAR[String(twsList[0])][String(t)]||0);
+  if(tws >= twsList[twsList.length-1]) return +(M32_POLAR[String(twsList[twsList.length-1])][String(t)]||0);
+  let lo=twsList[0],hi=twsList[twsList.length-1];
+  for(const v of twsList){if(v<=tws)lo=v;if(v>=tws&&v<hi)hi=v;}
+  if(lo===hi) return +(M32_POLAR[String(lo)][String(t)]||0);
+  const f=(tws-lo)/(hi-lo);
+  const slo=+(M32_POLAR[String(lo)][String(t)]||0);
+  const shi=+(M32_POLAR[String(hi)][String(t)]||0);
+  return slo*(1-f)+shi*f;
+}
+
+function distToLine(lat,lon,la1,lo1,la2,lo2){
+  const cLat=(la1+la2)/2;
+  const toM=(la,lo)=>[(lo-lo1)*D2R*RE*Math.cos(cLat*D2R),(la-la1)*D2R*RE];
+  const[px,py]=toM(lat,lon),[ex,ey]=toM(la2,lo2);
+  const L=Math.sqrt(ex*ex+ey*ey);
+  return -(px*(ey/L)-py*(ex/L));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════════════════════
+function switchTab(tab) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+tab).classList.add('active');
+  document.getElementById('nav-'+tab).classList.add('active');
+  if(tab === 'map') { resizeMapCanvas(); drawMap(); }
+  if(tab === 'data') updateDataPage();
+  if(tab === 'wind') updateWindPage();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TOAST
+// ═══════════════════════════════════════════════════════════
+let _toastTimer;
+function toast(msg, type='ok', dur=2200) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(()=>el.className='', dur);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CONFIG HELPERS
+// ═══════════════════════════════════════════════════════════
+function parseEventId(raw) {
+  raw = (raw||'').trim();
+  // Try to extract from URL: /watch/EVENT_ID/...
+  const m = raw.match(/\/watch\/([A-Za-z0-9_-]{10,})/);
+  if(m) return m[1];
+  // Raw ID (alphanumeric 10+ chars)
+  if(/^[A-Za-z0-9_-]{10,}$/.test(raw)) return raw;
+  return null;
+}
+
+function saveVenue() {
+  const v = {
+    ww: [+document.getElementById('sn-ww0').value, +document.getElementById('sn-ww1').value],
+    lw: [+document.getElementById('sn-lw0').value, +document.getElementById('sn-lw1').value],
+    rc: +document.getElementById('sn-rc').value,
+    pin: +document.getElementById('sn-pin').value,
+  };
+  localStorage.setItem('m32tac_venue', JSON.stringify(v));
+  toast('Venue saved');
+}
+
+function loadVenue() {
+  try {
+    const v = JSON.parse(localStorage.getItem('m32tac_venue')||'null');
+    if(!v) { toast('No saved venue', 'err'); return; }
+    if(v.ww) { document.getElementById('sn-ww0').value=v.ww[0]||''; document.getElementById('sn-ww1').value=v.ww[1]||''; }
+    if(v.lw) { document.getElementById('sn-lw0').value=v.lw[0]||''; document.getElementById('sn-lw1').value=v.lw[1]||''; }
+    if(v.rc) document.getElementById('sn-rc').value=v.rc;
+    if(v.pin) document.getElementById('sn-pin').value=v.pin;
+    toast('Venue loaded');
+  } catch(e) { toast('Load failed', 'err'); }
+}
+
+function getConfiguredSNs() {
+  return {
+    WW: [+document.getElementById('sn-ww0').value, +document.getElementById('sn-ww1').value].filter(Boolean),
+    LW: [+document.getElementById('sn-lw0').value, +document.getElementById('sn-lw1').value].filter(Boolean),
+    RC: +document.getElementById('sn-rc').value || null,
+    PIN: +document.getElementById('sn-pin').value || null,
+  };
+}
+
+function getExcluded() {
+  return new Set((document.getElementById('cfg-excluded').value||'').split(',').map(s=>s.trim()).filter(Boolean));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  WIND DIRECTION INPUT + COMPASS DIAL
+// ═══════════════════════════════════════════════════════════
+let compassDragging = false;
+// Sync all wind UI panels to a new direction+speed
+function syncAllWindUI(dir, tws) {
+  const v = ((+dir % 360) + 360) % 360;
+  STATE.windUser = v;
+  STATE.twsUser = tws || STATE.twsUser;
+  const twsVal = STATE.twsUser;
+
+  // Config tab
+  document.getElementById('cfg-wind-dir').value = Math.round(v);
+  document.getElementById('cfg-wind-card').textContent = card(v);
+  document.getElementById('cfg-tws').value = twsVal;
+  document.getElementById('cfg-tws-val').textContent = twsVal + 'kt';
+  drawCompassDial(v);
+
+  // Map popup
+  document.getElementById('wep-dir').value = Math.round(v);
+  document.getElementById('wep-tws').value = twsVal;
+  document.getElementById('wep-tws-val').textContent = twsVal + 'kt';
+
+  // Wind tab strip
+  document.getElementById('wie-dir').value = Math.round(v);
+  document.getElementById('wie-tws').value = twsVal;
+  document.getElementById('wie-tws-val').textContent = twsVal + 'kt';
+  document.getElementById('wes-dir').textContent = Math.round(v) + '°';
+  document.getElementById('wes-card').textContent = card(v);
+  document.getElementById('wes-tws').textContent = twsVal + 'kt';
+
+  updateBlendedWind();
+  updateDataPage();
+  if(document.getElementById('page-wind').classList.contains('active')) updateWindPage();
+}
+
+function onWindDirInput(val) {
+  const tws = +document.getElementById('cfg-tws').value || STATE.twsUser;
+  syncAllWindUI(val, tws);
+}
+
+// Map wind popup
+function toggleWindEditPopup() {
+  const popup = document.getElementById('wind-edit-popup');
+  const isVisible = popup.classList.contains('visible');
+  document.getElementById('wind-inline-edit').classList.remove('visible');
+  if(isVisible) { popup.classList.remove('visible'); }
+  else {
+    document.getElementById('wep-dir').value = Math.round(STATE.windUser);
+    document.getElementById('wep-tws').value = STATE.twsUser;
+    document.getElementById('wep-tws-val').textContent = STATE.twsUser + 'kt';
+    popup.classList.add('visible');
+  }
+}
+function syncWindEditPopup() {}
+function applyWindEditPopup() {
+  const dir = +document.getElementById('wep-dir').value;
+  const tws = +document.getElementById('wep-tws').value;
+  syncAllWindUI(dir, tws);
+  document.getElementById('wind-edit-popup').classList.remove('visible');
+  toast(`Wind set: ${Math.round(dir)}° ${card(dir)} · ${tws}kt`);
+}
+
+// Wind tab inline edit
+function toggleWindInlineEdit() {
+  const el = document.getElementById('wind-inline-edit');
+  const open = el.classList.contains('visible');
+  if(open) { el.classList.remove('visible'); }
+  else {
+    document.getElementById('wie-dir').value = Math.round(STATE.windUser);
+    document.getElementById('wie-tws').value = STATE.twsUser;
+    document.getElementById('wie-tws-val').textContent = STATE.twsUser + 'kt';
+    el.classList.add('visible');
+  }
+}
+function syncWindInlineEdit() {}
+function applyWindInlineEdit() {
+  const dir = +document.getElementById('wie-dir').value;
+  const tws = +document.getElementById('wie-tws').value;
+  syncAllWindUI(dir, tws);
+  document.getElementById('wind-inline-edit').classList.remove('visible');
+  toast(`Wind set: ${Math.round(dir)}° ${card(dir)} · ${tws}kt`);
+}
+
+function drawCompassDial(deg) {
+  const canvas = document.getElementById('compass-dial');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const S = 80;
+  canvas.width = S * dpr; canvas.height = S * dpr;
+  canvas.style.width = S+'px'; canvas.style.height = S+'px';
+  ctx.scale(dpr, dpr);
+  const cx = S/2, cy = S/2, r = S/2 - 4;
+
+  ctx.clearRect(0,0,S,S);
+  // ring
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.strokeStyle = '#1a3a55'; ctx.lineWidth = 2; ctx.stroke();
+  // tick marks
+  for(let i=0;i<36;i++){
+    const a = (i*10)*D2R - Math.PI/2;
+    const r0 = i%9===0 ? r-8 : r-5;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(a)*r, cy+Math.sin(a)*r);
+    ctx.lineTo(cx+Math.cos(a)*r0, cy+Math.sin(a)*r0);
+    ctx.strokeStyle = i%9===0 ? '#3d6e8a' : '#1a3a55';
+    ctx.lineWidth = i%9===0 ? 1.5 : 1; ctx.stroke();
+  }
+  // cardinal labels
+  const dirs = [['N',0],['E',90],['S',180],['W',270]];
+  ctx.font = '8px Orbitron'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const [lbl,d] of dirs){
+    const a = d*D2R - Math.PI/2;
+    ctx.fillStyle = '#3d6e8a';
+    ctx.fillText(lbl, cx+Math.cos(a)*(r-14), cy+Math.sin(a)*(r-14));
+  }
+  // wind arrow
+  const a = deg*D2R - Math.PI/2;
+  ctx.beginPath();
+  ctx.moveTo(cx + Math.cos(a)*(-r+8), cy + Math.sin(a)*(-r+8));
+  ctx.lineTo(cx + Math.cos(a)*(r-10), cy + Math.sin(a)*(r-10));
+  ctx.strokeStyle = '#00e5cc'; ctx.lineWidth = 2; ctx.stroke();
+  // arrowhead
+  const hx = cx + Math.cos(a)*(r-10), hy = cy + Math.sin(a)*(r-10);
+  ctx.beginPath();
+  ctx.moveTo(hx, hy);
+  ctx.lineTo(hx + Math.cos(a+2.6)*7, hy + Math.sin(a+2.6)*7);
+  ctx.lineTo(hx + Math.cos(a-2.6)*7, hy + Math.sin(a-2.6)*7);
+  ctx.closePath(); ctx.fillStyle='#00e5cc'; ctx.fill();
+}
+
+// Touch/drag on compass dial
+document.getElementById('compass-dial').addEventListener('touchstart', e=>{
+  compassDragging = true; handleCompassTouch(e); e.preventDefault();
+}, {passive:false});
+document.addEventListener('touchmove', e=>{ if(compassDragging) { handleCompassTouch(e); e.preventDefault(); } }, {passive:false});
+document.addEventListener('touchend', ()=>{ compassDragging = false; });
+
+function handleCompassTouch(e) {
+  const canvas = document.getElementById('compass-dial');
+  const rect = canvas.getBoundingClientRect();
+  const touch = e.touches[0];
+  const cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+  const dx = touch.clientX - cx, dy = touch.clientY - cy;
+  let deg = (Math.atan2(dx, -dy) / D2R + 360) % 360;
+  deg = Math.round(deg);
+  document.getElementById('cfg-wind-dir').value = deg;
+  onWindDirInput(deg);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  BLENDED WIND LOGIC
+//  User overrides if diff > 15°, otherwise 60/40 blend
+// ═══════════════════════════════════════════════════════════
+function updateBlendedWind() {
+  const userDir = STATE.windUser;
+  const inf = STATE.windInferred;
+
+  let blended, method;
+  if(inf == null || inf.wf == null || inf.confidence < 0.25) {
+    blended = userDir;
+    method = 'user only';
+  } else {
+    const diff = Math.abs(angDiff(userDir, inf.wf));
+    if(diff > 15) {
+      blended = userDir;
+      method = `user (Δ${diff.toFixed(0)}°>15)`;
+    } else {
+      blended = circBlend(userDir, 0.6, inf.wf, 0.4);
+      method = `60/40 blend`;
+    }
+  }
+  STATE.windBlended = { dir: blended, method };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  TELEMETRY API
+// ═══════════════════════════════════════════════════════════
+const API_BASE = 'https://teleapi.regatta.app/telemetry/event';
+
+async function fetchTelemetry() {
+  const eventId = STATE.eventId;
+  if(!eventId) return;
+  const sns = getConfiguredSNs();
+  const excluded = getExcluded();
+
+  // Fetch last 15 minutes of data (for wind inference we need ~10 min)
+  const before = Date.now();
+  const after  = before - 15 * 60 * 1000;
+  const division = document.getElementById('cfg-division').value || 'M32';
+
+  const url = `${API_BASE}/${eventId}?after=${after}&before=${before}&limit=5000${division ? '&division='+encodeURIComponent(division) : ''}`;
+
+  try {
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    const rows = data?.Rows || data?.rows || null;
+    if(!rows) throw new Error('No rows in response');
+    processRows(rows, sns, excluded);
+    STATE.connected = true;
+    STATE.lastPollTime = Date.now();
+    setStatus('live', `${rows.length} rows · ${division}`);
+  } catch(e) {
+    STATE.connected = false;
+    setStatus('error', 'Poll failed: ' + e.message);
+  }
+}
+
+function processRows(rows, sns, excluded) {
+  // Row: [ts, sn, division, sail_number, race_number, start_number, race_stage, role, lat, lon]
+  // role==='mark' is the definitive indicator — never classify a competitor row as a mark
+  const tracks = {};
+  const markPositions = { WW: [], LW: [], RC: [], PIN: [] };
+
+  for(const row of rows) {
+    const [ts, sn, div, sail, raceNum, startNum, stage, role, lat, lon] = row;
+    if(!lat || !lon || lat === 0 || lon === 0) continue;
+
+    const snN = +sn;
+
+    if(role === 'mark') {
+      // Assign to configured mark slot by SN
+      if(sns.WW.includes(snN))   markPositions.WW.push({lat:+lat,lon:+lon,ts:+ts,sn:snN});
+      else if(sns.LW.includes(snN)) markPositions.LW.push({lat:+lat,lon:+lon,ts:+ts,sn:snN});
+      else if(snN === sns.RC)    markPositions.RC.push({lat:+lat,lon:+lon,ts:+ts});
+      else if(snN === sns.PIN)   markPositions.PIN.push({lat:+lat,lon:+lon,ts:+ts});
+      // Unrecognised mark SNs are silently ignored (not yet assigned)
+    } else {
+      // Boat — must be competitor role (or unknown role treated as boat)
+      const sailStr = String(sail||'');
+      if(!sailStr || excluded.has(sailStr)) continue;
+      if(!tracks[sailStr]) tracks[sailStr] = [];
+      tracks[sailStr].push({ts:+ts,lat:+lat,lon:+lon,sog:0,hdg:0,cog:0});
+    }
+  }
+
+  // Compute COG/SOG for tracks
+  for(const sail of Object.keys(tracks)) {
+    const t = tracks[sail];
+    t.sort((a,b)=>a.ts-b.ts);
+    for(let i=0;i<t.length;i++) {
+      if(i>0) {
+        const prev = t[i-1];
+        const dt = (t[i].ts - prev.ts) / 1000;
+        if(dt > 0.1) {
+          t[i].cog = brg(prev.lat,prev.lon,t[i].lat,t[i].lon);
+          t[i].sog = hav(prev.lat,prev.lon,t[i].lat,t[i].lon) / dt * 1.94384; // m/s → kts
+        } else {
+          t[i].cog = i>0?t[i-1].cog:0;
+          t[i].sog = i>0?t[i-1].sog:0;
+        }
+        t[i].hdg = t[i].cog;
+      }
+    }
+  }
+
+  // Average mark positions (use most recent 60 seconds)
+  const now = Date.now();
+  function avgMark(pts) {
+    if(!pts.length) return null;
+    const recent = pts.filter(p => now-p.ts < 120000);
+    const use = recent.length ? recent : pts;
+    const lat = use.reduce((a,p)=>a+p.lat,0)/use.length;
+    const lon = use.reduce((a,p)=>a+p.lon,0)/use.length;
+    return {lat,lon};
+  }
+  function avgMarkBySN(pts, snList) {
+    const res = [];
+    for(const sn of snList) {
+      const p = pts.filter(x=>x.sn===sn);
+      const m = avgMark(p);
+      if(m) res.push(m);
+    }
+    if(!res.length) return avgMark(pts) ? [avgMark(pts)] : [];
+    return res;
+  }
+
+  // WW gate — average of the two WW marks, one per SN
+  // Preserve last known position if no new data available (marks may go quiet)
+  const newWW = avgMarkBySN(markPositions.WW, sns.WW);
+  const newLW = avgMarkBySN(markPositions.LW, sns.LW);
+  const newRC = avgMark(markPositions.RC);
+  const newPIN = avgMark(markPositions.PIN);
+  if(newWW.length)  STATE.marks.WW  = newWW;
+  if(newLW.length)  STATE.marks.LW  = newLW;
+  if(newRC)         STATE.marks.RC  = newRC;
+  if(newPIN)        STATE.marks.PIN = newPIN;
+  STATE.tracks = tracks;
+
+  // Wind inference
+  const WW = wwCenter();
+  const LW = lwCenter();
+  if(WW && LW) {
+    const gunTs = now - 10 * 60 * 1000; // approximate: use 10min ago as "gun"
+    STATE.windInferred = inferWind(tracks, WW.lat, WW.lon, LW.lat, LW.lon, gunTs);
+  }
+  updateBlendedWind();
+  updateDataPage();
+  if(document.getElementById('page-wind').classList.contains('active')) updateWindPage();
+  if(document.getElementById('page-map').classList.contains('active')) drawMap();
+}
+
+function wwCenter() {
+  if(!STATE.marks.WW.length) return null;
+  const lats = STATE.marks.WW.map(m=>m.lat), lons = STATE.marks.WW.map(m=>m.lon);
+  return {lat: lats.reduce((a,b)=>a+b)/lats.length, lon: lons.reduce((a,b)=>a+b)/lons.length};
+}
+function lwCenter() {
+  if(!STATE.marks.LW.length) return null;
+  const lats = STATE.marks.LW.map(m=>m.lat), lons = STATE.marks.LW.map(m=>m.lon);
+  return {lat: lats.reduce((a,b)=>a+b)/lats.length, lon: lons.reduce((a,b)=>a+b)/lons.length};
+}
+
+// ═══════════════════════════════════════════════════════════
+//  POLLING
+// ═══════════════════════════════════════════════════════════
+function startPolling() {
+  const raw = document.getElementById('cfg-event-input').value;
+  const eventId = parseEventId(raw);
+  if(!eventId) { toast('Invalid event ID or URL', 'err'); return; }
+  STATE.eventId = eventId;
+  STATE.division = document.getElementById('cfg-division').value;
+  STATE.pollSec = +document.getElementById('cfg-poll').value || 30;
+  clearInterval(STATE.pollTimer);
+  setStatus('stale', 'Connecting…');
+  fetchTelemetry();
+  STATE.pollTimer = setInterval(fetchTelemetry, STATE.pollSec * 1000);
+  toast(`Connected · polling ${STATE.pollSec}s`);
+}
+
+function setStatus(type, msg) {
+  ['data-dot','config-status-dot'].forEach(id => {
+    const d = document.getElementById(id);
+    if(d) { d.className = 'status-dot ' + type; }
+  });
+  const st = document.getElementById('status-text');
+  if(st) st.textContent = msg;
+  const cs = document.getElementById('config-status-txt');
+  if(cs) cs.textContent = type === 'live' ? 'LIVE' : type === 'error' ? 'ERROR' : 'POLLING';
+  const lu = document.getElementById('last-update');
+  if(lu && STATE.lastPollTime) {
+    const s = Math.round((Date.now() - STATE.lastPollTime)/1000);
+    lu.textContent = s < 5 ? 'just now' : `${s}s ago`;
+  }
+}
+
+// Keep "last update" fresh
+setInterval(()=>{
+  if(STATE.lastPollTime) {
+    const lu = document.getElementById('last-update');
+    if(lu) {
+      const s = Math.round((Date.now()-STATE.lastPollTime)/1000);
+      lu.textContent = s < 5 ? 'just now' : `${s}s ago`;
+    }
+    // Mark stale if > 2× poll interval
+    if(Date.now()-STATE.lastPollTime > STATE.pollSec*2000) setStatus('stale','Stale');
+  }
+}, 5000);
+
+// ═══════════════════════════════════════════════════════════
+//  GPS PING
+// ═══════════════════════════════════════════════════════════
+function pingGPS(source) {
+  if(!navigator.geolocation) { toast('Geolocation not available', 'err'); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      STATE.reachMark = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      const acc = pos.coords.accuracy ? ` (±${Math.round(pos.coords.accuracy)}m)` : '';
+      toast(`Reach mark set${acc}`);
+      updateReachMarkUI();
+      if(document.getElementById('page-map').classList.contains('active')) drawMap();
+    },
+    err => toast('GPS error: ' + err.message, 'err'),
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+}
+
+function clearReachMark() {
+  STATE.reachMark = null;
+  updateReachMarkUI();
+  if(document.getElementById('page-map').classList.contains('active')) drawMap();
+  toast('Reach mark cleared');
+}
+
+function updateReachMarkUI() {
+  const rm = STATE.reachMark;
+  const txt = rm ? `${rm.lat.toFixed(5)}, ${rm.lon.toFixed(5)}` : 'Not set — tap map or ping GPS';
+  document.getElementById('reach-status-cfg').textContent = txt;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  WIND INFERENCE (ported from race report)
+// ═══════════════════════════════════════════════════════════
+function inferWind(tracks, wwLat, wwLon, lwLat, lwLon, gunTs) {
+  const QUAL_BOATS = Object.keys(tracks||{});
+  const usableStart = gunTs + 120000;
+  const usableEnd   = gunTs + 720000;
+  const upwindAxis = brg(lwLat,lwLon,wwLat,wwLon);
+  const downwindAxis = (upwindAxis+180)%360;
+  const uwPort=[], uwStbd=[], dwPort=[], dwStbd=[];
+
+  for(const sail of QUAL_BOATS) {
+    const t = tracks[sail]; if(!t||t.length<10) continue;
+    for(let i=2;i<t.length-2;i++){
+      const p=t[i],a=t[i-2],b=t[i+2];
+      if(!p||!a||!b) continue;
+      const sog=p.sog||0;
+      if(sog<6||sog>35) continue;
+      const cog=brg(a.lat,a.lon,b.lat,b.lon);
+      const turn=Math.abs(angDiff(brg(t[i-2].lat,t[i-2].lon,t[i-1].lat,t[i-1].lon), brg(t[i+1].lat,t[i+1].lon,t[i+2].lat,t[i+2].lon)));
+      if(turn>20) continue;
+      const q = Math.max(0.1, 1 - turn/22) * Math.min(1.2, sog/12);
+      const relUW = ((cog-upwindAxis+540)%360)-180;
+      const relDW = ((cog-downwindAxis+540)%360)-180;
+      const row = {angle:cog,weight:q,sog};
+      if(Math.abs(relUW)<=55){ if(relUW>0) uwPort.push(row); else uwStbd.push(row); }
+      else if(Math.abs(relDW)<=55){ if(relDW<0) dwPort.push(row); else dwStbd.push(row); }
+    }
+  }
+
+  let wfUp=null, wfDw=null;
+  const vMean = arr => {
+    if(!arr.length) return null;
+    let sx=0,sy=0,sw=0;
+    for(const a of arr){const w=a.weight||1;sx+=Math.cos(a.angle*D2R)*w;sy+=Math.sin(a.angle*D2R)*w;sw+=w;}
+    return sw?{vx:sx/sw,vy:sy/sw}:null;
+  };
+  const vBrg = v => ((Math.atan2(v.vx,v.vy)/D2R)+360)%360;
+
+  if(uwPort.length>=3&&uwStbd.length>=3){
+    const mp=vMean(uwPort),ms=vMean(uwStbd);
+    if(mp&&ms) wfUp=vBrg({vx:mp.vx+ms.vx,vy:mp.vy+ms.vy});
+  }
+  if(dwPort.length>=3&&dwStbd.length>=3){
+    const mp=vMean(dwPort),ms=vMean(dwStbd);
+    if(mp&&ms) wfDw=(vBrg({vx:mp.vx+ms.vx,vy:mp.vy+ms.vy})+180)%360;
+  }
+
+  let wf = wfUp!=null?wfUp:(wfDw!=null?wfDw:upwindAxis);
+  if(wfUp!=null&&wfDw!=null){
+    wf = circBlend(wfUp, Math.max(1,uwPort.length+uwStbd.length)*1.2,
+                   wfDw, Math.max(1,dwPort.length+dwStbd.length)*0.5);
+  }
+  const stableN = uwPort.length+uwStbd.length+dwPort.length+dwStbd.length;
+  const conf = Math.min(0.96, 0.15+Math.min(0.4,stableN/100)+(wfUp!=null?0.2:0)+(wfDw!=null?0.06:0));
+
+  return {
+    wf, upwindAxis, downwindAxis,
+    wfUp, wfDw, n: Object.keys(tracks).length, stableN, confidence: +conf.toFixed(2),
+    fallback: wfUp==null&&wfDw==null,
+    uwPort, uwStbd, dwPort, dwStbd,
+    portMean: weightedCircMean(uwPort), stbdMean: weightedCircMean(uwStbd),
+    dwPortMean: weightedCircMean(dwPort), dwStbdMean: weightedCircMean(dwStbd),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GEOMETRY CALCULATIONS
+// ═══════════════════════════════════════════════════════════
+function computeGateAxis(m1, m2) {
+  if(!m1||!m2) return null;
+  return brg(m1.lat,m1.lon,m2.lat,m2.lon);
+}
+
+function computeGateBias(axisBreg, windDir) {
+  if(axisBreg==null||windDir==null) return null;
+  // Perpendicular to wind = axis perpendicular to wind direction
+  const idealGateAxis = (windDir + 90) % 360;
+  const diff = angDiff(axisBreg, idealGateAxis);
+  return diff; // +ve = gate angled to port-favored approach
+}
+
+function computeLineBias(RC, PIN, windDir) {
+  if(!RC||!PIN||windDir==null) return null;
+  const lineAxis = brg(RC.lat,RC.lon,PIN.lat,PIN.lon);
+  const perpToWind = (windDir + 90 + 360) % 360;
+  const bias = angDiff(lineAxis, perpToWind);
+  // +ve bias = RC end favored, -ve = PIN end favored
+  return bias;
+}
+
+function computeOptimalStart(RC, PIN, rm, windDir, tws) {
+  if(!RC||!PIN||!rm||windDir==null) return null;
+  const N = 60;
+  let minT = Infinity, minIdx = -1;
+  const times = [];
+  for(let i=0;i<=N;i++){
+    const f = i/N;
+    const sLat = RC.lat+(PIN.lat-RC.lat)*f;
+    const sLon = RC.lon+(PIN.lon-RC.lon)*f;
+    const dist = hav(sLat,sLon,rm.lat,rm.lon);
+    const brgToRM = brg(sLat,sLon,rm.lat,rm.lon);
+    const twa = Math.abs(((brgToRM-windDir+180+360)%360)-180);
+    const absTWA = Math.max(M32_POLAR_TWA_MIN, Math.min(M32_POLAR_TWA_MAX, twa));
+    const spd = polarSpeed(absTWA, tws||12);
+    const spdMs = spd * 0.514444;
+    const t = spdMs > 0 ? dist/spdMs : 9999;
+    times.push({f,t,sLat,sLon,twa:absTWA,spd});
+    if(t<minT){ minT=t; minIdx=i; }
+  }
+  if(minIdx<0) return null;
+  const best = times[minIdx];
+  const pinExcess = +(times[N].t - minT).toFixed(1);  // PIN is index N (f=1.0=100% from RC = pin end)
+  const rcExcess  = +(times[0].t - minT).toFixed(1);  // RC  is index 0 (f=0.0=0%  from RC = rc end)
+  const advantage = (rcExcess + pinExcess) / 2;
+  return { best, minIdx, times, minT, pctFromRC: +(best.f*100).toFixed(0),
+           advantage: +advantage.toFixed(1), pinExcess, rcExcess };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DATA PAGE UPDATE
+// ═══════════════════════════════════════════════════════════
+function updateDataPage() {
+  const WW = wwCenter(), LW = lwCenter();
+  const RC = STATE.marks.RC, PIN = STATE.marks.PIN;
+  const rm = STATE.reachMark;
+  const windBlend = STATE.windBlended?.dir ?? STATE.windUser;
+  const tws = +document.getElementById('cfg-tws').value || 12;
+  const userDir = STATE.windUser;
+  const inf = STATE.windInferred;
+
+  // ── Wind badge (map) ─────────────────────────────────────
+  document.getElementById('mbadge-dir').textContent = Math.round(windBlend)+'° '+card(windBlend);
+  document.getElementById('mbadge-tws').textContent = tws+'kt';
+
+  // ── Wind grid cards ──────────────────────────────────────
+  document.getElementById('dc-wind-user').textContent = Math.round(userDir)+'°';
+  document.getElementById('dc-wind-user-tws').textContent = tws+'kt · '+card(userDir);
+  if(inf&&inf.wf!=null&&!inf.fallback) {
+    document.getElementById('dc-wind-inf').textContent = Math.round(inf.wf)+'°';
+    document.getElementById('dc-wind-inf-conf').textContent = 'conf: '+(inf.confidence*100).toFixed(0)+'%';
+    document.getElementById('dc-wind-inf').className = 'dc-value teal';
+  } else {
+    document.getElementById('dc-wind-inf').textContent = '––';
+    document.getElementById('dc-wind-inf').className = 'dc-value';
+    document.getElementById('dc-wind-inf-conf').textContent = 'no fleet data';
+  }
+  if(STATE.windBlended) {
+    document.getElementById('dc-wind-blend').textContent = Math.round(STATE.windBlended.dir)+'°';
+    document.getElementById('dc-wind-blend-src').textContent = STATE.windBlended.method;
+  }
+
+  // ── Start line length ────────────────────────────────────
+  if(RC&&PIN) {
+    document.getElementById('dc-line-len').textContent = Math.round(hav(RC.lat,RC.lon,PIN.lat,PIN.lon))+'m';
+  }
+
+  // ── Course Axis + Wind card ──────────────────────────────
+  if(WW&&LW) {
+    const ca = brg(LW.lat,LW.lon,WW.lat,WW.lon);
+    document.getElementById('pc-course-axis').textContent = Math.round(ca)+'°';
+    document.getElementById('pc-course-axis-card').textContent = card(ca) + ' · LW→WW';
+  }
+  // Wind side of course card always updates
+  document.getElementById('pc-course-wind').textContent = Math.round(windBlend)+'°';
+  document.getElementById('pc-course-wind-sub').textContent = card(windBlend) + ' · ' + tws + 'kt';
+
+  // ── WW Gate Bias priority card ───────────────────────────
+  // WW = top mark = boats arrive downwind, rounding to go back upwind
+  // Port favoured WW gate → right turn favour (starboard rounding = inside)
+  // Stbd favoured WW gate → left turn favour
+  if(STATE.marks.WW.length>=2) {
+    const wwAxis = computeGateAxis(STATE.marks.WW[0], STATE.marks.WW[1]);
+    if(wwAxis!=null) {
+      const perp = Math.round(((wwAxis - 90) + 360) % 360);
+      document.getElementById('pc-ww-axis').textContent = Math.round(wwAxis)+'°';
+      document.getElementById('pc-ww-perp').textContent = perp+'°';
+      const wb = computeGateBias(wwAxis, windBlend);
+      if(wb!=null) {
+        const gateWidth = Math.round(hav(STATE.marks.WW[0].lat,STATE.marks.WW[0].lon,STATE.marks.WW[1].lat,STATE.marks.WW[1].lon));
+        const biasM = Math.round(Math.sin(Math.abs(wb)*D2R) * gateWidth / 2);
+        // WW: port favoured = right turn favour, stbd favoured = left turn favour
+        const side = wb>0 ? 'Right turn' : 'Left turn';
+        const el = document.getElementById('pc-ww-bias-m');
+        el.textContent = biasM+'m';
+        el.className = 'pc-value ' + (biasM<5?'green':biasM<15?'amber':'red');
+        document.getElementById('pc-ww-bias-side').textContent = side;
+      }
+    }
+  } else {
+    document.getElementById('pc-ww-axis').textContent = '––°';
+    document.getElementById('pc-ww-perp').textContent = '––°';
+    document.getElementById('pc-ww-bias-m').textContent = '––';
+    document.getElementById('pc-ww-bias-side').textContent = 'Need 2 WW marks';
+  }
+
+  // ── LW Gate Bias priority card ───────────────────────────
+  // LW = bottom mark = boats arrive upwind, rounding to go back downwind
+  // Port favoured LW gate → right turn favour
+  // Stbd favoured LW gate → left turn favour  (opposite of WW)
+  if(STATE.marks.LW.length>=2) {
+    const lwAxis = computeGateAxis(STATE.marks.LW[0], STATE.marks.LW[1]);
+    if(lwAxis!=null) {
+      const perp = Math.round(((lwAxis - 90) + 360) % 360);
+      document.getElementById('pc-lw-axis').textContent = Math.round(lwAxis)+'°';
+      document.getElementById('pc-lw-perp').textContent = perp+'°';
+      const lb = computeGateBias(lwAxis, windBlend);
+      if(lb!=null) {
+        const gateWidth = Math.round(hav(STATE.marks.LW[0].lat,STATE.marks.LW[0].lon,STATE.marks.LW[1].lat,STATE.marks.LW[1].lon));
+        const biasM = Math.round(Math.sin(Math.abs(lb)*D2R) * gateWidth / 2);
+        // LW: port favoured = right turn favour, stbd favoured = left turn favour
+        const side = lb>0 ? 'Right turn' : 'Left turn';
+        const el = document.getElementById('pc-lw-bias-m');
+        el.textContent = biasM+'m';
+        el.className = 'pc-value ' + (biasM<5?'green':biasM<15?'amber':'red');
+        document.getElementById('pc-lw-bias-side').textContent = side;
+      }
+    }
+  } else {
+    document.getElementById('pc-lw-axis').textContent = '––°';
+    document.getElementById('pc-lw-perp').textContent = '––°';
+    document.getElementById('pc-lw-bias-m').textContent = '––';
+    document.getElementById('pc-lw-bias-side').textContent = 'Need 2 LW marks';
+  }
+
+  // ── Optimal Start canvas ─────────────────────────────────
+  if(RC&&PIN&&rm) {
+    // Mid-line point
+    const midLat = (RC.lat + PIN.lat) / 2;
+    const midLon = (RC.lon + PIN.lon) / 2;
+    // Bearing from mid-line to reach mark
+    const brgToRM = brg(midLat, midLon, rm.lat, rm.lon);
+    // TWA = absolute angle between wind direction and bearing to RM
+    let twaToRM = Math.abs(((brgToRM - windBlend + 540) % 360) - 180);
+    document.getElementById('pc-reach-twa').textContent = Math.round(twaToRM) + '°';
+
+    const opt = computeOptimalStart(RC, PIN, rm, windBlend, tws);
+    if(opt) {
+      const pinEl = document.getElementById('pc-opt-pin-excess');
+      const rcEl  = document.getElementById('pc-opt-rc-excess');
+      pinEl.textContent = '+' + opt.pinExcess.toFixed(1) + 's';
+      rcEl.textContent  = '+' + opt.rcExcess.toFixed(1)  + 's';
+      // Excess labels are always red (set in HTML); no dynamic override needed
+      drawStartLineDiagram(opt);
+    }
+  } else {
+    document.getElementById('pc-reach-twa').textContent = '––°';
+    document.getElementById('pc-opt-pin-excess').textContent = '––';
+    document.getElementById('pc-opt-rc-excess').textContent  = '––';
+    drawStartLineDiagram(null);
+  }
+
+  // ── Reach Asymmetry priority card ────────────────────────
+  if(rm&&RC&&PIN) {
+    const dPin = Math.round(hav(PIN.lat,PIN.lon,rm.lat,rm.lon));
+    const dRC  = Math.round(hav(RC.lat,RC.lon,rm.lat,rm.lon));
+    const diff = Math.abs(dPin - dRC);
+    const longer = Math.max(dPin,dRC), shorter = Math.min(dPin,dRC);
+    const extraPct = shorter > 0 ? (((longer-shorter)/shorter)*100).toFixed(1) : '––';
+    const pinColor = dPin > dRC ? 'var(--red)' : dPin < dRC ? 'var(--green)' : 'var(--white)';
+    const rcColor  = dRC  > dPin ? 'var(--red)' : dRC  < dPin ? 'var(--green)' : 'var(--amber)';
+
+    const pinEl = document.getElementById('pc-reach-pin');
+    const rcEl  = document.getElementById('pc-reach-rc');
+    pinEl.textContent = dPin+'m'; pinEl.style.color = pinColor;
+    rcEl.textContent  = dRC+'m';  rcEl.style.color  = rcColor;
+
+    const diffEl = document.getElementById('pc-reach-diff');
+    diffEl.textContent = diff+'m';
+    diffEl.className = 'pc-value ' + (diff<20?'green':diff<60?'amber':'red');
+
+    const pctEl = document.getElementById('pc-reach-pct');
+    pctEl.textContent = '+'+extraPct+'%';
+    const pctV = parseFloat(extraPct);
+    pctEl.style.color = pctV<3 ? 'var(--green)' : pctV<8 ? 'var(--amber)' : 'var(--red)';
+  } else {
+    document.getElementById('pc-reach-pin').textContent = '––';
+    document.getElementById('pc-reach-rc').textContent  = '––';
+    document.getElementById('pc-reach-diff').textContent = '––';
+    document.getElementById('pc-reach-pct').textContent = '––';
+  }
+}
+
+// ── Start line diagram canvas ────────────────────────────────────────────────
+function drawStartLineDiagram(opt) {
+  const canvas = document.getElementById('start-line-canvas');
+  if(!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || 300, H = 44;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const PAD = 24, lineY = H / 2;
+
+  // Background
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath(); ctx.roundRect(0, 0, W, H, 4); ctx.fill();
+
+  // Line
+  ctx.strokeStyle = 'rgba(200,223,240,0.25)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(PAD, lineY); ctx.lineTo(W - PAD, lineY); ctx.stroke();
+
+  // PIN mark (left = 0% from PIN = PIN end)
+  const pinX = PAD;
+  ctx.beginPath(); ctx.arc(pinX, lineY, 5, 0, Math.PI*2);
+  ctx.fillStyle = '#00e5cc'; ctx.fill();
+  ctx.fillStyle = 'rgba(200,223,240,0.5)'; ctx.font = 'bold 8px Share Tech Mono';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('PIN', pinX, lineY - 7);
+
+  // RC mark (right = 100% from PIN = RC end)
+  const rcX = W - PAD;
+  ctx.beginPath(); ctx.arc(rcX, lineY, 5, 0, Math.PI*2);
+  ctx.fillStyle = '#ffb700'; ctx.fill();
+  ctx.fillStyle = 'rgba(200,223,240,0.5)';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('RC', rcX, lineY - 7);
+
+  if(!opt) {
+    ctx.fillStyle = 'rgba(100,140,170,0.5)'; ctx.font = '9px Share Tech Mono';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('no data', W/2, lineY);
+    return;
+  }
+
+  // pctFromRC: 0=RC end, 100=PIN end → pctFromPin = 100 - pctFromRC
+  const pctFromPin = 100 - opt.pctFromRC;
+  // Layout: pinX=left(0%), rcX=right(100% from PIN)
+  const optX = pinX + (rcX - pinX) * (pctFromPin / 100);
+
+  // Helper: time delta → colour (green <4s, yellow 4-7, orange 7-10, red 10+)
+  function deltaColor(delta, alpha) {
+    const d = Math.max(0, delta);
+    let rv, gv, bv;
+    if(d < 4) {
+      // green → yellow: 0..4s
+      const u = d / 4;
+      rv = Math.round(u * 255); gv = Math.round(210 - u * (210-183)); bv = 0;
+    } else if(d < 7) {
+      // yellow → orange: 4..7s
+      const u = (d - 4) / 3;
+      rv = 255; gv = Math.round(183 - u * (183-80)); bv = 0;
+    } else if(d < 10) {
+      // orange → red: 7..10s
+      const u = (d - 7) / 3;
+      rv = 255; gv = Math.round(80 - u * 80); bv = 0;
+    } else {
+      rv = 255; gv = 0; bv = 0;
+    }
+    return alpha != null ? `rgba(${rv},${gv},${bv},${alpha})` : `rgb(${rv},${gv},${bv})`;
+  }
+
+  // Draw coloured heat bar across the full line, using per-point time data
+  // times array: index 0 = RC (f=0), index N = PIN (f=1); but layout is PIN left → RC right
+  // so screen position goes from pinX(times[N]) to rcX(times[0])
+  const N = opt.times.length - 1;
+  const barH = 4, barY = lineY - barH/2;
+  for(let i = 0; i <= N; i++) {
+    const delta = opt.times[i].t - opt.minT;
+    // f=0 is RC (right=rcX), f=1 is PIN (left=pinX)
+    const screenX = rcX + (pinX - rcX) * opt.times[i].f;
+    const segW = (rcX - pinX) / N;
+    ctx.fillStyle = deltaColor(delta, 0.7);
+    ctx.fillRect(screenX - segW/2, barY, segW + 0.5, barH);
+  }
+
+  // Glow zone around optimal (soft white overlay)
+  const zoneW = (rcX - pinX) * 0.10;
+  const glow = ctx.createLinearGradient(optX - zoneW*2, 0, optX + zoneW*2, 0);
+  glow.addColorStop(0,   'rgba(255,255,255,0)');
+  glow.addColorStop(0.5, 'rgba(255,255,255,0.12)');
+  glow.addColorStop(1,   'rgba(255,255,255,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(optX - zoneW*2, barY - 2, zoneW * 4, barH + 4);
+
+  // Optimal marker colour from its own delta (should be green = 0)
+  const optDelta = opt.times[opt.minIdx].t - opt.minT;  // should be ~0
+  const optColor = deltaColor(optDelta);
+
+  // Vertical tick at optimal
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.6;
+  ctx.beginPath(); ctx.moveTo(optX, lineY - 11); ctx.lineTo(optX, lineY + 11); ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // Diamond at optimal
+  ctx.save(); ctx.translate(optX, lineY); ctx.rotate(Math.PI/4);
+  ctx.beginPath(); ctx.rect(-5, -5, 10, 10);
+  ctx.fillStyle = '#00e5cc'; ctx.fill();
+  ctx.strokeStyle = '#03101f'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore();
+
+  // % label (from PIN) below the diamond
+  ctx.fillStyle = '#00e5cc'; ctx.font = 'bold 9px Orbitron';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText(pctFromPin + '%', optX, lineY + 12);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  WIND PAGE UPDATE
+// ═══════════════════════════════════════════════════════════
+function updateWindPage() {
+  const inf = STATE.windInferred;
+  const userDir = STATE.windUser;
+  const blend = STATE.windBlended;
+
+  document.getElementById('wpage-user').textContent = Math.round(userDir)+'° '+card(userDir);
+  document.getElementById('wpage-blend').textContent = blend ? Math.round(blend.dir)+'° '+card(blend.dir) : '––';
+  document.getElementById('wpage-method').textContent = blend?.method || '––';
+
+  if(inf&&inf.wf!=null) {
+    document.getElementById('wpage-inf').textContent = Math.round(inf.wf)+'° '+card(inf.wf);
+    const diff = Math.abs(angDiff(userDir,inf.wf));
+    document.getElementById('wpage-diff').textContent = diff.toFixed(1)+'°';
+    const pct = Math.round(inf.confidence*100);
+    document.getElementById('wpage-conf-bar').style.width = pct+'%';
+    document.getElementById('wpage-conf-txt').textContent = pct+'% confidence · '+inf.stableN+' stable pts';
+    document.getElementById('wind-page-boats').textContent = inf.n+' boats';
+    document.getElementById('cl-uw-port').textContent = inf.portMean!=null?Math.round(inf.portMean)+'°':'––';
+    document.getElementById('cl-uw-port-n').textContent = 'n='+inf.uwPort.length;
+    document.getElementById('cl-uw-stbd').textContent = inf.stbdMean!=null?Math.round(inf.stbdMean)+'°':'––';
+    document.getElementById('cl-uw-stbd-n').textContent = 'n='+inf.uwStbd.length;
+    document.getElementById('cl-dw-port').textContent = inf.dwPortMean!=null?Math.round(inf.dwPortMean)+'°':'––';
+    document.getElementById('cl-dw-port-n').textContent = 'n='+inf.dwPort.length;
+    document.getElementById('cl-dw-stbd').textContent = inf.dwStbdMean!=null?Math.round(inf.dwStbdMean)+'°':'––';
+    document.getElementById('cl-dw-stbd-n').textContent = 'n='+inf.dwStbd.length;
+  } else {
+    document.getElementById('wpage-inf').textContent = 'no data';
+    document.getElementById('wpage-diff').textContent = '––';
+    document.getElementById('wpage-conf-bar').style.width = '0%';
+    document.getElementById('wpage-conf-txt').textContent = 'No fleet telemetry loaded';
+  }
+  drawWindRose();
+}
+
+function drawWindRose() {
+  const canvas = document.getElementById('wind-rose');
+  const dpr = window.devicePixelRatio||1;
+  const S = Math.min(240, window.innerWidth - 40);
+  canvas.width = S*dpr; canvas.height = S*dpr;
+  canvas.style.width = S+'px'; canvas.style.height = S+'px';
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
+  const cx=S/2,cy=S/2,r=S/2-14;
+
+  ctx.clearRect(0,0,S,S);
+  // bg rings
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2);
+  ctx.strokeStyle='#1a3a55'; ctx.lineWidth=1; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy,r*0.5,0,Math.PI*2);
+  ctx.strokeStyle='#0d2540'; ctx.lineWidth=1; ctx.stroke();
+
+  // cardinal labels
+  const dirs=[['N',0],['E',90],['S',180],['W',270]];
+  ctx.font=`${S*0.04}px Orbitron`; ctx.textAlign='center'; ctx.textBaseline='middle';
+  for(const[lbl,d] of dirs){
+    const a=d*D2R-Math.PI/2;
+    ctx.fillStyle='#3d6e8a';
+    ctx.fillText(lbl,cx+Math.cos(a)*(r+10),cy+Math.sin(a)*(r+10));
+  }
+
+  // heading cluster dots
+  const inf = STATE.windInferred;
+  if(inf) {
+    const drawCluster = (pts, color) => {
+      for(const p of pts) {
+        const a = p.angle*D2R - Math.PI/2;
+        const dist = Math.min(r, (p.sog/25)*r);
+        ctx.beginPath(); ctx.arc(cx+Math.cos(a)*dist, cy+Math.sin(a)*dist, 2.5, 0, Math.PI*2);
+        ctx.fillStyle = color+'66'; ctx.fill();
+      }
+    };
+    drawCluster(inf.uwPort,'#ff4455');
+    drawCluster(inf.uwStbd,'#00e67a');
+    drawCluster(inf.dwPort,'#ff4455');
+    drawCluster(inf.dwStbd,'#00e67a');
+  }
+
+  // User wind arrow
+  const drawArrow = (deg, color, label, lenFrac, lineW) => {
+    const a = deg*D2R-Math.PI/2;
+    const len = r*lenFrac;
+    ctx.save();
+    ctx.strokeStyle=color; ctx.lineWidth=lineW;
+    ctx.beginPath();
+    ctx.moveTo(cx-Math.cos(a)*len*0.3, cy-Math.sin(a)*len*0.3);
+    ctx.lineTo(cx+Math.cos(a)*len, cy+Math.sin(a)*len);
+    ctx.stroke();
+    const hx=cx+Math.cos(a)*len,hy=cy+Math.sin(a)*len;
+    ctx.beginPath();
+    ctx.moveTo(hx,hy);
+    ctx.lineTo(hx+Math.cos(a+2.5)*10,hy+Math.sin(a+2.5)*10);
+    ctx.lineTo(hx+Math.cos(a-2.5)*10,hy+Math.sin(a-2.5)*10);
+    ctx.closePath(); ctx.fillStyle=color; ctx.fill();
+    ctx.font=`${S*0.035}px Share Tech Mono`; ctx.fillStyle=color; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(label, cx+Math.cos(a)*(len+18), cy+Math.sin(a)*(len+18));
+    ctx.restore();
+  };
+
+  drawArrow(STATE.windUser, '#ffb700', 'USR', 0.72, 2);
+  if(inf&&inf.wf!=null&&!inf.fallback) drawArrow(inf.wf, '#00e5cc', 'INF', 0.6, 1.5);
+  if(STATE.windBlended) drawArrow(STATE.windBlended.dir, '#eaf5ff', 'BLD', 0.85, 2.5);
+
+  // center dot
+  ctx.beginPath(); ctx.arc(cx,cy,4,0,Math.PI*2);
+  ctx.fillStyle='#eaf5ff'; ctx.fill();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MAP
+// ═══════════════════════════════════════════════════════════
+function resizeMapCanvas() {
+  const page = document.getElementById('page-map');
+  const canvas = document.getElementById('map-canvas');
+  const dpr = window.devicePixelRatio||1;
+  const W = page.clientWidth, H = page.clientHeight;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+}
+
+function toggleOrientation() {
+  STATE.orientCourseUp = !STATE.orientCourseUp;
+  document.getElementById('orient-btn').textContent = STATE.orientCourseUp ? 'COURSE-UP' : 'NORTH-UP';
+  drawMap();
+}
+
+function toggleReachMarkMode() {
+  STATE.placingReach = !STATE.placingReach;
+  closeMarkRolePicker();
+  document.getElementById('wind-edit-popup').classList.remove('visible');
+  const btn = document.getElementById('place-rm-btn');
+  const hint = document.getElementById('map-tap-hint');
+  btn.className = 'map-side-btn' + (STATE.placingReach ? ' active-rm' : '');
+  hint.className = 'map-tap-hint' + (STATE.placingReach ? ' visible' : '');
+  drawMap();
+}
+
+// Collect all mark positions to determine map bounds
+function getAllMarkPoints() {
+  const pts = [];
+  for(const m of STATE.marks.WW) pts.push(m);
+  for(const m of STATE.marks.LW) pts.push(m);
+  if(STATE.marks.RC) pts.push(STATE.marks.RC);
+  if(STATE.marks.PIN) pts.push(STATE.marks.PIN);
+  if(STATE.reachMark) pts.push(STATE.reachMark);
+  // In assign mode, include unassigned candidates so map scales to show all
+  if(STATE.markAssignMode && STATE.marks._candidates) {
+    for(const c of STATE.marks._candidates) pts.push(c);
+  }
+  return pts;
+}
+
+function buildProjection(pts, W, H, padPct=0.12) {
+  if(!pts.length) return null;
+  let minLat=Infinity,maxLat=-Infinity,minLon=Infinity,maxLon=-Infinity;
+  for(const p of pts){ minLat=Math.min(minLat,p.lat);maxLat=Math.max(maxLat,p.lat);minLon=Math.min(minLon,p.lon);maxLon=Math.max(maxLon,p.lon); }
+
+  // Add padding
+  const dLat=(maxLat-minLat)||0.001, dLon=(maxLon-minLon)||0.001;
+  minLat-=dLat*padPct; maxLat+=dLat*padPct;
+  minLon-=dLon*padPct; maxLon+=dLon*padPct;
+
+  const cLat=(minLat+maxLat)/2, cLon=(minLon+maxLon)/2;
+  const scaleX = W / ((maxLon-minLon)*D2R*RE*Math.cos(cLat*D2R));
+  const scaleY = H / ((maxLat-minLat)*D2R*RE);
+  const scale = Math.min(scaleX,scaleY);
+
+  return {
+    toXY: (lat,lon) => {
+      const x = W/2 + (lon-cLon)*D2R*RE*Math.cos(cLat*D2R)*scale;
+      const y = H/2 - (lat-cLat)*D2R*RE*scale;
+      return {x,y};
+    },
+    toLonLat: (x,y) => {
+      const lon = cLon + (x-W/2)/(RE*Math.cos(cLat*D2R)*scale)/D2R;
+      const lat = cLat - (y-H/2)/(RE*scale)/D2R;
+      return {lat,lon};
+    },
+    scale, cLat, cLon,
+  };
+}
+
+function buildRotatedProjection(pts, W, H, courseAxis) {
+  if(!pts.length) return null;
+  // rotAngle: rotate world so courseAxis (bearing from LW→WW, upwind) points to screen-up (-Y)
+  // Canvas Y increases downward; north maps to -Y; bearing θ means rotate by θ clockwise
+  const rotAngle = courseAxis * D2R;
+
+  // First get center
+  let sumLat=0,sumLon=0;
+  for(const p of pts){ sumLat+=p.lat; sumLon+=p.lon; }
+  const cLat=sumLat/pts.length, cLon=sumLon/pts.length;
+
+  // Convert to local cartesian (meters from center)
+  const toLocal = (lat,lon) => ({
+    x: (lon-cLon)*D2R*RE*Math.cos(cLat*D2R),
+    y: (lat-cLat)*D2R*RE,
+  });
+
+  // Rotate local coords
+  const rot = (p) => ({
+    x: p.x*Math.cos(rotAngle) - p.y*Math.sin(rotAngle),
+    y: p.x*Math.sin(rotAngle) + p.y*Math.cos(rotAngle),
+  });
+
+  const localPts = pts.map(p => rot(toLocal(p.lat,p.lon)));
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const p of localPts){ minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y); }
+
+  const padPct = 0.14;
+  const dX=(maxX-minX)||100, dY=(maxY-minY)||100;
+  minX-=dX*padPct; maxX+=dX*padPct;
+  minY-=dY*padPct; maxY+=dY*padPct;
+
+  const scaleX = W/(maxX-minX), scaleY = H/(maxY-minY);
+  const scale = Math.min(scaleX,scaleY);
+  const offX = W/2 - (minX+maxX)/2*scale;
+  const offY = H/2 + (minY+maxY)/2*scale; // note: Y is inverted
+
+  return {
+    toXY: (lat,lon) => {
+      const l = toLocal(lat,lon);
+      const r = rot(l);
+      return { x: r.x*scale+offX, y: -r.y*scale+offY };
+    },
+    toLonLat: (sx,sy) => {
+      const rx = (sx-offX)/scale;
+      const ry = -(sy-offY)/scale;
+      // Inverse rotation
+      const angle = -rotAngle;
+      const lx = rx*Math.cos(angle) - ry*Math.sin(angle);
+      const ly = rx*Math.sin(angle) + ry*Math.cos(angle);
+      const lat = cLat + ly/RE/D2R;
+      const lon = cLon + lx/(RE*Math.cos(cLat*D2R))/D2R;
+      return {lat,lon};
+    },
+    scale, cLat, cLon,
+  };
+}
+
+function drawMap() {
+  const canvas = document.getElementById('map-canvas');
+  if(!canvas) return;
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.width/dpr, H = canvas.height/dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(1,1); ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.save(); ctx.scale(dpr,dpr);
+
+  // Dark water background
+  ctx.fillStyle = '#03101f';
+  ctx.fillRect(0,0,W,H);
+
+  // grid lines — anchored to zoom/pan
+  { const mv=STATE.mapView;
+    const gs=40; ctx.strokeStyle='rgba(26,58,85,0.3)'; ctx.lineWidth=0.5;
+    const ox = ((mv.panX % gs) + gs) % gs, oy = ((mv.panY % gs) + gs) % gs;
+    for(let i=ox-gs;i<W+gs;i+=gs){ ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,H);ctx.stroke(); }
+    for(let i=oy-gs;i<H+gs;i+=gs){ ctx.beginPath();ctx.moveTo(0,i);ctx.lineTo(W,i);ctx.stroke(); }
+  }
+
+  const allPts = getAllMarkPoints();
+  if(!allPts.length) {
+    ctx.fillStyle='#3d6e8a'; ctx.font='13px Share Tech Mono';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('No marks loaded — connect to event', W/2, H/2);
+    ctx.restore(); return;
+  }
+
+  // Build projection
+  const WW=wwCenter(), LW=lwCenter();
+  let proj;
+  if(STATE.orientCourseUp && WW && LW) {
+    const courseAxis = brg(LW.lat,LW.lon,WW.lat,WW.lon);
+    proj = buildRotatedProjection(allPts, W, H, courseAxis);
+  } else {
+    proj = buildProjection(allPts, W, H);
+  }
+  if(!proj) { ctx.restore(); return; }
+
+  // Apply zoom/pan to projection
+  const mv = STATE.mapView;
+  const baseToXY = proj.toXY.bind(proj);
+  const baseToLonLat = proj.toLonLat.bind(proj);
+  proj.toXY = (lat, lon) => {
+    const p = baseToXY(lat, lon);
+    return { x: p.x * mv.zoom + mv.panX, y: p.y * mv.zoom + mv.panY };
+  };
+  proj.toLonLat = (sx, sy) => {
+    return baseToLonLat((sx - mv.panX) / mv.zoom, (sy - mv.panY) / mv.zoom);
+  };
+
+  STATE.mapProjection = proj;
+
+  // Draw start line
+  const RC = STATE.marks.RC, PIN = STATE.marks.PIN;
+  if(RC&&PIN) {
+    const r=proj.toXY(RC.lat,RC.lon), p=proj.toXY(PIN.lat,PIN.lon);
+    ctx.strokeStyle='rgba(255,183,0,0.8)'; ctx.lineWidth=2;
+    ctx.setLineDash([5,3]);
+    ctx.beginPath(); ctx.moveTo(r.x,r.y); ctx.lineTo(p.x,p.y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw course lines WW–LW
+  if(WW&&LW) {
+    const w=proj.toXY(WW.lat,WW.lon), l=proj.toXY(LW.lat,LW.lon);
+    ctx.strokeStyle='rgba(0,229,204,0.25)'; ctx.lineWidth=1;
+    ctx.setLineDash([8,4]);
+    ctx.beginPath(); ctx.moveTo(w.x,w.y); ctx.lineTo(l.x,l.y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw gate lines
+  if(STATE.marks.WW.length>=2) {
+    const p0=proj.toXY(STATE.marks.WW[0].lat,STATE.marks.WW[0].lon);
+    const p1=proj.toXY(STATE.marks.WW[1].lat,STATE.marks.WW[1].lon);
+    ctx.strokeStyle='rgba(0,229,204,0.6)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.stroke();
+  }
+  if(STATE.marks.LW.length>=2) {
+    const p0=proj.toXY(STATE.marks.LW[0].lat,STATE.marks.LW[0].lon);
+    const p1=proj.toXY(STATE.marks.LW[1].lat,STATE.marks.LW[1].lon);
+    ctx.strokeStyle='rgba(0,184,164,0.6)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.stroke();
+  }
+
+  // Reach mark to RC and PIN lines
+  if(STATE.reachMark) {
+    const rm=proj.toXY(STATE.reachMark.lat,STATE.reachMark.lon);
+    if(RC) {
+      const r=proj.toXY(RC.lat,RC.lon);
+      ctx.strokeStyle='rgba(255,68,85,0.3)'; ctx.lineWidth=1; ctx.setLineDash([3,4]);
+      ctx.beginPath(); ctx.moveTo(rm.x,rm.y); ctx.lineTo(r.x,r.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if(PIN) {
+      const p=proj.toXY(PIN.lat,PIN.lon);
+      ctx.strokeStyle='rgba(0,229,204,0.3)'; ctx.lineWidth=1; ctx.setLineDash([3,4]);
+      ctx.beginPath(); ctx.moveTo(rm.x,rm.y); ctx.lineTo(p.x,p.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+
+  // Draw marks — in assign mode use larger hit targets and show SN label
+  const assignMode = !!STATE.markAssignMode;
+  const markR = assignMode ? 14 : 8;
+  const drawMark = (lat,lon,label,color,r,snLabel) => {
+    r = r || markR;
+    const {x,y}=proj.toXY(lat,lon);
+    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
+    ctx.fillStyle=color+'33'; ctx.fill();
+    ctx.strokeStyle=color; ctx.lineWidth=assignMode?2.5:2; ctx.stroke();
+    ctx.fillStyle=color; ctx.font=`bold ${assignMode?10:9}px Orbitron`;
+    ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillText(label,x,y-r-2);
+    if(assignMode && snLabel) {
+      ctx.fillStyle='rgba(200,223,240,0.55)'; ctx.font='8px Share Tech Mono';
+      ctx.fillText('SN'+snLabel,x,y+r+10);
+    }
+  };
+
+  for(let i=0;i<STATE.marks.WW.length;i++) drawMark(STATE.marks.WW[i].lat,STATE.marks.WW[i].lon,'WW'+(STATE.marks.WW.length>1?(i===0?'p':'s'):''),'#00e5cc',markR,STATE.marks.WW[i].sn);
+  for(let i=0;i<STATE.marks.LW.length;i++) drawMark(STATE.marks.LW[i].lat,STATE.marks.LW[i].lon,'LW'+(STATE.marks.LW.length>1?(i===0?'p':'s'):''),'#00b8a4',markR,STATE.marks.LW[i].sn);
+  if(RC) drawMark(RC.lat,RC.lon,'RC','#ffb700',markR,RC.sn);
+  if(PIN) drawMark(PIN.lat,PIN.lon,'PIN','#ffb700',markR,PIN.sn);
+
+  // In assign mode, also draw unassigned candidates as grey dots
+  if(assignMode && STATE.marks._candidates) {
+    for(const c of STATE.marks._candidates) {
+      drawMark(c.lat,c.lon,'?','#3d6e8a',markR,c.sn);
+    }
+  }
+
+  // Reach mark
+  if(STATE.reachMark) {
+    const {x,y}=proj.toXY(STATE.reachMark.lat,STATE.reachMark.lon);
+    // Pulsing circle
+    ctx.beginPath(); ctx.arc(x,y,14,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,183,0,0.25)'; ctx.lineWidth=1; ctx.stroke();
+    ctx.beginPath(); ctx.arc(x,y,8,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,183,0,0.2)'; ctx.fill();
+    ctx.strokeStyle='#ffb700'; ctx.lineWidth=2.5; ctx.stroke();
+    ctx.fillStyle='#ffb700'; ctx.font='bold 9px Orbitron';
+    ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillText('RM',x,y-10);
+
+    // Distances
+    if(RC||PIN) {
+      ctx.fillStyle='rgba(255,183,0,0.7)'; ctx.font='8px Share Tech Mono'; ctx.textBaseline='middle';
+      if(RC){
+        const r=proj.toXY(RC.lat,RC.lon);
+        const d=Math.round(hav(RC.lat,RC.lon,STATE.reachMark.lat,STATE.reachMark.lon));
+        const mx=(x+r.x)/2, my=(y+r.y)/2;
+        ctx.fillText(d+'m',mx,my-6);
+      }
+      if(PIN){
+        const p=proj.toXY(PIN.lat,PIN.lon);
+        const d=Math.round(hav(PIN.lat,PIN.lon,STATE.reachMark.lat,STATE.reachMark.lon));
+        const mx=(x+p.x)/2, my=(y+p.y)/2;
+        ctx.fillText(d+'m',mx,my-6);
+      }
+    }
+  }
+
+  // Wind arrow — top-centre, rotates with map
+  const windBlend = STATE.windBlended?.dir ?? STATE.windUser;
+  const mapRot = (STATE.orientCourseUp && WW && LW) ? brg(LW.lat,LW.lon,WW.lat,WW.lon) : 0;
+  drawWindArrowTop(ctx, W, H, windBlend, mapRot);
+
+  // Place-reach overlay
+  if(STATE.placingReach) {
+    ctx.strokeStyle='rgba(255,183,0,0.5)'; ctx.lineWidth=1.5;
+    ctx.setLineDash([4,4]);
+    ctx.strokeRect(2,2,W-4,H-4);
+    ctx.setLineDash([]);
+  }
+
+  // Compass rose — always shown, rotates when course-up
+  drawCompassRose(ctx, W, H, mapRot, STATE.orientCourseUp && !!(WW && LW));
+
+  // Draw replay boat positions + trails
+  if(STATE.mode === 'replay' && Object.keys(STATE.replayBoatPositions).length) {
+    const BOAT_COLORS = ['#00e5cc','#ffb700','#ff4455','#00e67a','#a78bfa','#f97316','#38bdf8','#fb7185'];
+    const sailList = Object.keys(STATE.replayBoatPositions);
+    sailList.forEach((sail, si) => {
+      const color = BOAT_COLORS[si % BOAT_COLORS.length];
+      const pos = STATE.replayBoatPositions[sail];
+      const {x, y} = proj.toXY(pos.lat, pos.lon);
+      // Trail
+      const trail = STATE.tracks[sail] || [];
+      if(trail.length > 1) {
+        ctx.beginPath(); ctx.moveTo(proj.toXY(trail[0].lat,trail[0].lon).x, proj.toXY(trail[0].lat,trail[0].lon).y);
+        for(let i=1;i<trail.length;i++){
+          const tp = proj.toXY(trail[i].lat,trail[i].lon);
+          ctx.lineTo(tp.x, tp.y);
+        }
+        ctx.strokeStyle = color+'55'; ctx.lineWidth=1.5; ctx.stroke();
+      }
+      // Boat dot + heading line
+      const cogA = (pos.cog||0)*D2R - Math.PI/2;
+      ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2);
+      ctx.fillStyle = color; ctx.fill();
+      ctx.strokeStyle = '#03101f'; ctx.lineWidth = 1; ctx.stroke();
+      // heading line
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+Math.cos(cogA)*14,y+Math.sin(cogA)*14);
+      ctx.strokeStyle=color+'aa'; ctx.lineWidth=1.5; ctx.stroke();
+      // Label
+      ctx.fillStyle=color; ctx.font='bold 8px Share Tech Mono';
+      ctx.textAlign='center'; ctx.textBaseline='top';
+      ctx.fillText(sail, x, y+7);
+    });
+  } else if(STATE.mode === 'live') {
+    // Live mode: draw latest boat positions
+    const boats = Object.entries(STATE.tracks);
+    const BOAT_COLORS = ['#00e5cc','#ffb700','#ff4455','#00e67a','#a78bfa','#f97316','#38bdf8','#fb7185'];
+    boats.forEach(([sail, pts], si) => {
+      if(!pts.length) return;
+      const pos = pts[pts.length-1];
+      const color = BOAT_COLORS[si % BOAT_COLORS.length];
+      const {x,y} = proj.toXY(pos.lat, pos.lon);
+      ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2);
+      ctx.fillStyle=color; ctx.fill();
+      ctx.strokeStyle='#03101f'; ctx.lineWidth=1; ctx.stroke();
+      ctx.fillStyle=color; ctx.font='bold 8px Share Tech Mono';
+      ctx.textAlign='center'; ctx.textBaseline='top';
+      ctx.fillText(sail, x, y+7);
+    });
+  }
+
+  // Replay mode badge on map header
+  const replayBadgeEl = document.getElementById('replay-map-badge');
+  if(STATE.mode === 'replay') {
+    if(replayBadgeEl) {
+      replayBadgeEl.style.display = '';
+      if(STATE.replayScrubTs && STATE.replayStartTs) {
+        replayBadgeEl.textContent = fmtTime(STATE.replayScrubTs);
+      }
+    }
+  } else {
+    if(replayBadgeEl) replayBadgeEl.style.display = 'none';
+  }
+
+  // Map status
+  const boatCount = STATE.mode === 'replay'
+    ? Object.keys(STATE.replayBoatPositions).length
+    : Object.keys(STATE.tracks).length;
+  document.getElementById('map-status').textContent = boatCount ? `${boatCount} boats` : '––';
+
+  // Build hit areas for mark tapping (after all marks drawn)
+  buildMarkHitAreas(proj);
+
+  ctx.restore();
+}
+
+// Wind arrow — top-centre of map, rotates with the map so it always points true
+function drawWindArrowTop(ctx, W, H, windDir, mapRotDeg) {
+  const cx = W / 2, cy = 52, r = 26;
+  ctx.save();
+
+  // Dark pill background
+  ctx.beginPath(); ctx.arc(cx, cy, r+4, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(3,16,31,0.75)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(0,229,204,0.25)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // Wind direction arrow: windDir is a compass bearing (wind coming FROM)
+  // The arrow points where wind is GOING, so +180°
+  // Then we subtract mapRotDeg so it stays correct when map is rotated
+  const goingDir = windDir + 180;
+  const a = (goingDir - mapRotDeg) * D2R - Math.PI/2;  // -π/2 converts bearing to canvas angle
+
+  const shaft = r * 0.72, tail = r * 0.45;
+
+  // Shaft
+  ctx.strokeStyle = '#00e5cc'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx - Math.cos(a)*tail, cy - Math.sin(a)*tail);
+  ctx.lineTo(cx + Math.cos(a)*shaft, cy + Math.sin(a)*shaft);
+  ctx.stroke();
+
+  // Arrowhead at tip
+  const hx = cx + Math.cos(a)*shaft, hy = cy + Math.sin(a)*shaft;
+  ctx.beginPath();
+  ctx.moveTo(hx, hy);
+  ctx.lineTo(hx + Math.cos(a + 2.45)*9, hy + Math.sin(a + 2.45)*9);
+  ctx.lineTo(hx + Math.cos(a - 2.45)*9, hy + Math.sin(a - 2.45)*9);
+  ctx.closePath(); ctx.fillStyle = '#00e5cc'; ctx.fill();
+
+  // Label: bearing value
+  ctx.fillStyle = 'rgba(200,223,240,0.8)'; ctx.font = 'bold 9px Share Tech Mono';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(Math.round(windDir) + '°', cx, cy);
+
+  ctx.restore();
+}
+
+// Compass rose — bottom-right, rotates with map, shows N S E W
+function drawCompassRose(ctx, W, H, courseAxisDeg, isRotated) {
+  const cx = W - 38, cy = H - 50, r = 26;
+  ctx.save();
+
+  // Background disc
+  ctx.beginPath(); ctx.arc(cx, cy, r+2, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(3,16,31,0.75)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(26,58,85,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // When course-up, north is rotated: northAngle = -courseAxisDeg from screen up
+  // Screen up = -π/2 in canvas; north bearing = courseAxisDeg clockwise from screen up
+  const northA = isRotated ? (-courseAxisDeg) * D2R : 0;
+
+  const dirs = [
+    { label: 'N', a: northA,                    color: '#ff4455', len: r*0.82 },
+    { label: 'S', a: northA + Math.PI,           color: 'rgba(200,223,240,0.45)', len: r*0.65 },
+    { label: 'E', a: northA + Math.PI/2,         color: 'rgba(200,223,240,0.45)', len: r*0.65 },
+    { label: 'W', a: northA - Math.PI/2,         color: 'rgba(200,223,240,0.45)', len: r*0.65 },
+  ];
+
+  // Crosshair lines
+  ctx.strokeStyle = 'rgba(200,223,240,0.2)'; ctx.lineWidth = 0.8;
+  for(const d of dirs) {
+    ctx.beginPath();
+    ctx.moveTo(cx - Math.sin(d.a)*r*0.18, cy - Math.cos(d.a)*r*0.18);
+    ctx.lineTo(cx + Math.sin(d.a)*r*0.95, cy + Math.cos(d.a)*r*0.95);
+    ctx.stroke();
+  }
+
+  // Tick marks at 45° intervals
+  for(let i=0; i<8; i++) {
+    const ta = northA + i*Math.PI/4;
+    const inner = r*0.72, outer = r*0.88;
+    ctx.strokeStyle = 'rgba(200,223,240,0.25)'; ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.sin(ta)*inner, cy - Math.cos(ta)*inner);
+    ctx.lineTo(cx + Math.sin(ta)*outer, cy - Math.cos(ta)*outer);
+    ctx.stroke();
+  }
+
+  // N needle (red tip north, white south)
+  const nx = cx + Math.sin(northA)*r*0.78, ny = cy - Math.cos(northA)*r*0.78;
+  const sx = cx - Math.sin(northA)*r*0.55, sy = cy + Math.cos(northA)*r*0.55;
+  // South half
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(sx, sy);
+  ctx.strokeStyle = 'rgba(200,223,240,0.35)'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke();
+  // North half (red)
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(nx, ny);
+  ctx.strokeStyle = '#ff4455'; ctx.lineWidth = 2.5; ctx.stroke();
+
+  // Centre dot
+  ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(200,223,240,0.6)'; ctx.fill();
+
+  // Cardinal labels
+  ctx.font = 'bold 8px Orbitron';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const labelR = r + 10;
+  for(const d of dirs) {
+    const lx = cx + Math.sin(d.a)*labelR, ly = cy - Math.cos(d.a)*labelR;
+    ctx.fillStyle = d.color;
+    ctx.fillText(d.label, lx, ly);
+  }
+
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MAP TAP — reach mark placing + mark role assignment
+// ═══════════════════════════════════════════════════════════
+function handleMapTap(x, y) {
+  // Close popups on any tap
+  document.getElementById('wind-edit-popup').classList.remove('visible');
+
+  // Priority 1: placing reach mark
+  if(STATE.placingReach) {
+    if(!STATE.mapProjection) return;
+    const latlon = STATE.mapProjection.toLonLat(x, y);
+    STATE.reachMark = latlon;
+    STATE.placingReach = false;
+    document.getElementById('place-rm-btn').className = 'map-side-btn';
+    document.getElementById('map-tap-hint').className = 'map-tap-hint';
+    updateReachMarkUI();
+    drawMap();
+    toast('Reach mark placed');
+    return;
+  }
+
+  // Priority 2: if role picker is open, close it (tap elsewhere)
+  if(document.getElementById('mark-role-picker').classList.contains('visible')) {
+    closeMarkRolePicker();
+    return;
+  }
+
+  // Priority 3: tap on a mark dot → open role picker
+  const hit = findMarkHit(x, y);
+  if(hit) {
+    openMarkRolePicker(hit, x, y);
+    return;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MAP ZOOM / PAN / TAP — unified pointer handling
+// ═══════════════════════════════════════════════════════════
+(function() {
+  const canvas = document.getElementById('map-canvas');
+  const MIN_ZOOM = 0.5, MAX_ZOOM = 12;
+
+  function clampZoom(z) { return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z)); }
+
+  function applyZoom(newZoom, pivotX, pivotY) {
+    const mv = STATE.mapView;
+    const prev = mv.zoom;
+    newZoom = clampZoom(newZoom);
+    // Adjust pan so the pivot point stays fixed on screen
+    mv.panX = pivotX - (pivotX - mv.panX) * (newZoom / prev);
+    mv.panY = pivotY - (pivotY - mv.panY) * (newZoom / prev);
+    mv.zoom = newZoom;
+    updateZoomResetBtn();
+    drawMap();
+  }
+
+  function updateZoomResetBtn() {
+    const btn = document.getElementById('zoom-reset-btn');
+    if(btn) btn.style.display = (STATE.mapView.zoom !== 1 || STATE.mapView.panX !== 0 || STATE.mapView.panY !== 0) ? '' : 'none';
+  }
+  window.updateZoomResetBtn = updateZoomResetBtn;
+
+  window.resetMapZoom = function() {
+    STATE.mapView = { zoom: 1, panX: 0, panY: 0 };
+    updateZoomResetBtn();
+    drawMap();
+  };
+
+  // ── Mouse wheel zoom ──────────────────────────────────────
+  canvas.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
+    applyZoom(STATE.mapView.zoom * factor, px, py);
+  }, {passive: false});
+
+  // ── Touch handling: pinch-zoom + pan + tap ─────────────────
+  let _touches = {};       // active touches by identifier
+  let _lastPinchDist = 0;
+  let _lastPinchMid = null;
+  let _panStart = null;    // {x, y, panX0, panY0} for single-finger pan
+  let _tapStart = null;    // {x, y, t} to distinguish tap from drag
+  let _dragged = false;
+  let _pinching = false;
+
+  function touchDist(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+  function touchMid(a, b) {
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    for(const t of e.changedTouches) {
+      _touches[t.identifier] = { x: t.clientX - rect.left, y: t.clientY - rect.top };
+    }
+    const ids = Object.keys(_touches);
+
+    if(ids.length === 1) {
+      const p = _touches[ids[0]];
+      _tapStart = { x: p.x, y: p.y, t: Date.now() };
+      _panStart = { x: p.x, y: p.y, panX0: STATE.mapView.panX, panY0: STATE.mapView.panY };
+      _dragged = false;
+      _pinching = false;
+    } else if(ids.length === 2) {
+      _pinching = true;
+      _tapStart = null;
+      const a = _touches[ids[0]], b = _touches[ids[1]];
+      _lastPinchDist = touchDist(a, b);
+      _lastPinchMid  = touchMid(a, b);
+    }
+  }, {passive: false});
+
+  canvas.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    for(const t of e.changedTouches) {
+      _touches[t.identifier] = { x: t.clientX - rect.left, y: t.clientY - rect.top };
+    }
+    const ids = Object.keys(_touches);
+
+    if(ids.length === 2) {
+      _pinching = true;
+      const a = _touches[ids[0]], b = _touches[ids[1]];
+      const dist = touchDist(a, b);
+      const mid  = touchMid(a, b);
+
+      if(_lastPinchDist > 0) {
+        const factor = dist / _lastPinchDist;
+        const mv = STATE.mapView;
+        const newZoom = clampZoom(mv.zoom * factor);
+        // Zoom around midpoint
+        mv.panX = mid.x - (mid.x - mv.panX) * (newZoom / mv.zoom);
+        mv.panY = mid.y - (mid.y - mv.panY) * (newZoom / mv.zoom);
+        // Pan with midpoint shift
+        mv.panX += mid.x - _lastPinchMid.x;
+        mv.panY += mid.y - _lastPinchMid.y;
+        mv.zoom = newZoom;
+        updateZoomResetBtn();
+        drawMap();
+      }
+      _lastPinchDist = dist;
+      _lastPinchMid  = mid;
+
+    } else if(ids.length === 1 && _panStart && !_pinching) {
+      const p = _touches[ids[0]];
+      const dx = p.x - _panStart.x, dy = p.y - _panStart.y;
+      if(Math.hypot(dx, dy) > 6) _dragged = true;
+      if(_dragged) {
+        STATE.mapView.panX = _panStart.panX0 + dx;
+        STATE.mapView.panY = _panStart.panY0 + dy;
+        updateZoomResetBtn();
+        drawMap();
+      }
+    }
+  }, {passive: false});
+
+  canvas.addEventListener('touchend', function(e) {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    for(const t of e.changedTouches) delete _touches[t.identifier];
+
+    const remaining = Object.keys(_touches).length;
+
+    if(remaining === 0) {
+      if(!_dragged && !_pinching && _tapStart) {
+        const dt = Date.now() - _tapStart.t;
+        if(dt < 400) handleMapTap(_tapStart.x, _tapStart.y);
+      }
+      _panStart = null; _tapStart = null; _dragged = false; _pinching = false;
+      _lastPinchDist = 0;
+    } else if(remaining === 1) {
+      // Went from 2 fingers to 1 — start fresh pan from current position
+      _pinching = false;
+      const id = Object.keys(_touches)[0];
+      const p = _touches[id];
+      _panStart = { x: p.x, y: p.y, panX0: STATE.mapView.panX, panY0: STATE.mapView.panY };
+      _dragged = false;
+      _tapStart = null;
+    }
+  }, {passive: false});
+
+  // ── Mouse click (desktop) ──────────────────────────────────
+  let _mouseDown = null, _mouseDragged = false;
+  canvas.addEventListener('mousedown', function(e) {
+    const rect = canvas.getBoundingClientRect();
+    _mouseDown = { x: e.clientX - rect.left, y: e.clientY - rect.top,
+                   panX0: STATE.mapView.panX, panY0: STATE.mapView.panY };
+    _mouseDragged = false;
+  });
+  canvas.addEventListener('mousemove', function(e) {
+    if(!_mouseDown) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const dx = x - _mouseDown.x, dy = y - _mouseDown.y;
+    if(Math.hypot(dx, dy) > 4) {
+      _mouseDragged = true;
+      STATE.mapView.panX = _mouseDown.panX0 + dx;
+      STATE.mapView.panY = _mouseDown.panY0 + dy;
+      updateZoomResetBtn();
+      drawMap();
+    }
+  });
+  canvas.addEventListener('mouseup', function(e) {
+    if(!_mouseDragged && _mouseDown) {
+      const rect = canvas.getBoundingClientRect();
+      handleMapTap(e.clientX - rect.left, e.clientY - rect.top);
+    }
+    _mouseDown = null; _mouseDragged = false;
+  });
+  canvas.addEventListener('mouseleave', function() { _mouseDown = null; });
+})();
+
+// ═══════════════════════════════════════════════════════════
+//  MARK HIT DETECTION + ROLE PICKER
+// ═══════════════════════════════════════════════════════════
+
+// Build hit areas from current marks after each drawMap call
+// Stored in STATE._markHitAreas: [{type, subIdx, x, y, r, label, currentRole, sn}]
+function buildMarkHitAreas(proj) {
+  const areas = [];
+  if(!proj) return areas;
+  const hitR = STATE.markAssignMode ? 22 : 16;
+
+  const addMark = (lat, lon, label, type, subIdx, currentRole, sn) => {
+    const {x, y} = proj.toXY(lat, lon);
+    areas.push({ x, y, r: hitR, label, type, subIdx, currentRole, sn });
+  };
+
+  for(let i=0; i<STATE.marks.WW.length; i++)
+    addMark(STATE.marks.WW[i].lat, STATE.marks.WW[i].lon,
+      STATE.marks.WW.length>1 ? (i===0?'WWp':'WWs') : 'WW',
+      'WW', i, i===0?'WW-port':'WW-stbd', STATE.marks.WW[i].sn);
+  for(let i=0; i<STATE.marks.LW.length; i++)
+    addMark(STATE.marks.LW[i].lat, STATE.marks.LW[i].lon,
+      STATE.marks.LW.length>1 ? (i===0?'LWp':'LWs') : 'LW',
+      'LW', i, i===0?'LW-port':'LW-stbd', STATE.marks.LW[i].sn);
+  if(STATE.marks.RC)
+    addMark(STATE.marks.RC.lat, STATE.marks.RC.lon, 'RC', 'RC', 0, 'RC', STATE.marks.RC.sn);
+  if(STATE.marks.PIN)
+    addMark(STATE.marks.PIN.lat, STATE.marks.PIN.lon, 'PIN', 'PIN', 0, 'PIN', STATE.marks.PIN.sn);
+  // Unassigned candidates (assign mode only)
+  if(STATE.markAssignMode && STATE.marks._candidates) {
+    for(let i=0; i<STATE.marks._candidates.length; i++) {
+      const c = STATE.marks._candidates[i];
+      addMark(c.lat, c.lon, '?', 'candidate', i, 'ignore', c.sn);
+    }
+  }
+
+  STATE._markHitAreas = areas;
+  return areas;
+}
+
+function findMarkHit(x, y) {
+  for(const area of (STATE._markHitAreas||[])) {
+    const dx = x - area.x, dy = y - area.y;
+    if(dx*dx + dy*dy <= area.r * area.r) return area;
+  }
+  return null;
+}
+
+const ROLE_MAP_OPTIONS = [
+  { role: 'WW-port', label: 'WW Port', cls: 'role-ww' },
+  { role: 'WW-stbd', label: 'WW Stbd', cls: 'role-ww' },
+  { role: 'LW-port', label: 'LW Port', cls: 'role-lw' },
+  { role: 'LW-stbd', label: 'LW Stbd', cls: 'role-lw' },
+  { role: 'RC',      label: 'RC Boat', cls: 'role-line' },
+  { role: 'PIN',     label: 'Pin End', cls: 'role-line' },
+];
+
+function openMarkRolePicker(hit, tapX, tapY) {
+  STATE._activeTapMark = hit;
+  const picker = document.getElementById('mark-role-picker');
+
+  // Position near tap, keeping within canvas bounds
+  const canvas = document.getElementById('map-canvas');
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  const pw = 170, ph = 310; // approx picker size
+  let left = tapX + 12, top = tapY - 30;
+  if(left + pw > cw - 10) left = tapX - pw - 12;
+  if(top + ph > ch - 10) top = ch - ph - 10;
+  if(top < 60) top = 60;
+
+  picker.style.left = left + 'px';
+  picker.style.top  = top  + 'px';
+
+  document.getElementById('mrp-sn-label').textContent = hit.sn ? `SN ${hit.sn}` : hit.label;
+
+  // Highlight active role buttons
+  picker.querySelectorAll('.mrp-btn').forEach(btn => {
+    const role = btn.getAttribute('data-role');
+    btn.classList.toggle('active', role === hit.currentRole);
+  });
+
+  picker.classList.add('visible');
+}
+
+function closeMarkRolePicker() {
+  document.getElementById('mark-role-picker').classList.remove('visible');
+  STATE._activeTapMark = null;
+}
+
+function assignMarkRole(newRole) {
+  const hit = STATE._activeTapMark;
+  if(!hit) { closeMarkRolePicker(); return; }
+
+  // Grab the lat/lon and sn of the mark being reassigned
+  let lat, lon, sn;
+  if(hit.type === 'WW')  { const m=STATE.marks.WW[hit.subIdx]; lat=m?.lat; lon=m?.lon; sn=m?.sn; }
+  if(hit.type === 'LW')  { const m=STATE.marks.LW[hit.subIdx]; lat=m?.lat; lon=m?.lon; sn=m?.sn; }
+  if(hit.type === 'RC')  { lat=STATE.marks.RC?.lat;  lon=STATE.marks.RC?.lon;  sn=STATE.marks.RC?.sn; }
+  if(hit.type === 'PIN') { lat=STATE.marks.PIN?.lat; lon=STATE.marks.PIN?.lon; sn=STATE.marks.PIN?.sn; }
+  if(hit.type === 'candidate') {
+    const c = STATE.marks._candidates[hit.subIdx];
+    lat=c?.lat; lon=c?.lon; sn=c?.sn;
+  }
+  if(lat == null || lon == null) { closeMarkRolePicker(); return; }
+
+  // Remove from old slot
+  if(hit.type === 'WW')        STATE.marks.WW.splice(hit.subIdx, 1);
+  if(hit.type === 'LW')        STATE.marks.LW.splice(hit.subIdx, 1);
+  if(hit.type === 'RC')        STATE.marks.RC  = null;
+  if(hit.type === 'PIN')       STATE.marks.PIN = null;
+  if(hit.type === 'candidate') STATE.marks._candidates.splice(hit.subIdx, 1);
+
+  // Insert into new slot
+  const pt = { lat, lon, sn };
+  if(newRole === 'WW-port')     { STATE.marks.WW.unshift(pt); }
+  else if(newRole === 'WW-stbd'){ STATE.marks.WW.push(pt); }
+  else if(newRole === 'LW-port'){ STATE.marks.LW.unshift(pt); }
+  else if(newRole === 'LW-stbd'){ STATE.marks.LW.push(pt); }
+  else if(newRole === 'RC')     { STATE.marks.RC  = pt; }
+  else if(newRole === 'PIN')    { STATE.marks.PIN = pt; }
+  else if(newRole === 'ignore') {
+    // move to candidates pool
+    if(STATE.marks._candidates) STATE.marks._candidates.push({lat,lon,sn,suggestedRole:'ignore'});
+  }
+
+  // Auto-enable course-up once WW and LW are both assigned
+  if(STATE.marks.WW.length >= 1 && STATE.marks.LW.length >= 1) {
+    if(!STATE.orientCourseUp) {
+      STATE.orientCourseUp = true;
+      const ob = document.getElementById('orient-btn');
+      if(ob) ob.textContent = 'COURSE UP';
+    }
+  }
+
+  closeMarkRolePicker();
+  drawMap();
+  if(STATE.markAssignMode) updateMarkAssignBanner();
+  else updateDataPage();
+  toast(`Mark → ${newRole}`);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  WINDOW / RESIZE
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('resize', () => {
+  if(document.getElementById('page-map').classList.contains('active')) {
+    resizeMapCanvas(); drawMap();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════
+//  MODE SWITCHING
+// ═══════════════════════════════════════════════════════════
+function setMode(mode) {
+  STATE.mode = mode;
+  const liveBtn = document.getElementById('mode-live-btn');
+  const repBtn  = document.getElementById('mode-replay-btn');
+  const liveSection   = document.getElementById('live-section');
+  const replaySection = document.getElementById('replay-section');
+  const replayBar     = document.getElementById('replay-bar');
+  const gpsPingBtn    = document.getElementById('gps-ping-btn');
+
+  if(mode === 'live') {
+    liveBtn.className  = 'mode-btn active-live';
+    repBtn.className   = 'mode-btn';
+    liveSection.style.display   = '';
+    replaySection.style.display = 'none';
+    if(replayBar) replayBar.classList.remove('visible');
+    if(gpsPingBtn) gpsPingBtn.style.display = '';
+    // clear replay-only state
+    STATE.replayStartTs = null;
+    STATE.replayScrubTs = null;
+    clearInterval(STATE.pollTimer);
+  } else {
+    repBtn.className   = 'mode-btn active-replay';
+    liveBtn.className  = 'mode-btn';
+    liveSection.style.display   = 'none';
+    replaySection.style.display = '';
+    clearInterval(STATE.pollTimer);
+    if(gpsPingBtn) gpsPingBtn.style.display = 'none';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  REPLAY — START & SCAN
+// ═══════════════════════════════════════════════════════════
+async function startReplay() {
+  const rawId  = document.getElementById('cfg-replay-event').value;
+  const div    = document.getElementById('cfg-replay-division').value || 'M32';
+  const dateV  = document.getElementById('cfg-replay-date').value;
+  const timeV  = document.getElementById('cfg-replay-time').value || '12:00';
+
+  const eventId = parseEventId(rawId);
+  if(!eventId) { toast('Invalid event ID or URL', 'err'); return; }
+  if(!dateV)   { toast('Please enter a start date', 'err'); return; }
+
+  const dtStr = `${dateV}T${timeV}:00`;
+  const startTs = new Date(dtStr).getTime();
+  if(isNaN(startTs)) { toast('Invalid date/time', 'err'); return; }
+
+  STATE.eventId       = eventId;
+  STATE.division      = div;
+  STATE.replayStartTs = startTs;
+  STATE.replayScrubTs = startTs;
+  STATE.replayChunkCache = {};
+  STATE.replayScanDone   = false;
+  STATE.replayFoundMarks = [];
+  STATE.connected = true;
+
+  const endTs = startTs + STATE.replayWindowMs;
+  document.getElementById('scrub-label-start').textContent = fmtTime(startTs);
+  document.getElementById('scrub-label-end').textContent   = fmtTime(endTs);
+  document.getElementById('replay-scrubber').value = 0;
+  document.getElementById('replay-bar').classList.add('visible');
+  updateScrubTimeDisplay(0);
+
+  // Show scan overlay (full-screen loading spinner)
+  showScanOverlay();
+  await scanMarksFromReplay(eventId, div, startTs, endTs);
+}
+
+function fmtTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+
+function fmtTimeOffset(startTs, currentTs) {
+  const diffMin = Math.round((currentTs - startTs) / 60000);
+  const h = Math.floor(Math.abs(diffMin) / 60);
+  const m = Math.abs(diffMin) % 60;
+  const sign = diffMin < 0 ? '-' : '+';
+  return `${sign}${h}:${String(m).padStart(2,'0')}`;
+}
+
+function updateScrubTimeDisplay(sliderVal) {
+  if(!STATE.replayStartTs) return;
+  const ts = STATE.replayStartTs + (+sliderVal) * 60 * 1000;
+  document.getElementById('scrub-time-display').textContent = fmtTime(ts);
+  // Update CSS gradient
+  const pct = (sliderVal / 180 * 100).toFixed(1) + '%';
+  document.getElementById('replay-scrubber').style.setProperty('--pct', pct);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SCAN OVERLAY helpers
+// ═══════════════════════════════════════════════════════════
+function showScanOverlay(msg) {
+  const el = document.getElementById('scan-overlay');
+  el.style.display = 'flex';
+  document.getElementById('scan-progress-txt').textContent = msg || 'Fetching telemetry…';
+  document.getElementById('scan-fill').style.width = '0%';
+}
+function hideScanOverlay() {
+  document.getElementById('scan-overlay').style.display = 'none';
+}
+function setScanProgress(pct, msg) {
+  document.getElementById('scan-fill').style.width = pct + '%';
+  if(msg) document.getElementById('scan-progress-txt').textContent = msg;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SCAN MARKS — fetch first 20 min to identify mark SNs
+// ═══════════════════════════════════════════════════════════
+async function scanMarksFromReplay(eventId, div, startTs, endTs) {
+  setScanProgress(10, 'Scanning telemetry for marks…');
+
+  const scanEnd = Math.min(startTs + 20 * 60 * 1000, endTs);
+  const url = `${API_BASE}/${eventId}?after=${startTs}&before=${scanEnd}&limit=3000${div ? '&division='+encodeURIComponent(div) : ''}`;
+
+  let rows;
+  try {
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    rows = data?.Rows || data?.rows || null;
+    if(!rows) throw new Error('No rows — check event ID and date/time');
+  } catch(e) {
+    setScanProgress(0, 'Scan failed: ' + e.message);
+    setTimeout(hideScanOverlay, 3000);
+    return;
+  }
+
+  setScanProgress(60, `${rows.length} rows — identifying marks by role…`);
+
+  // role==='mark' is definitive — sail="" and role="mark" means it is a mark buoy
+  // We never rely on displacement alone: a slow/anchored race boat could fool that test
+  const snData = {};
+  for(const row of rows) {
+    const [ts, sn, , , , , , role, lat, lon] = row;
+    if(!lat || !lon || +lat === 0 || +lon === 0) continue;
+    if(role !== 'mark') continue;  // only trust role field
+    const snStr = String(sn);
+    if(!snData[snStr]) snData[snStr] = { sn: snStr, latSum: 0, lonSum: 0, count: 0 };
+    snData[snStr].latSum += +lat;
+    snData[snStr].lonSum += +lon;
+    snData[snStr].count++;
+  }
+
+  const markCandidates = [];
+  for(const [sn, d] of Object.entries(snData)) {
+    if(d.count < 2) continue;
+    const avgLat = d.latSum / d.count;
+    const avgLon = d.lonSum / d.count;
+    markCandidates.push({ sn, avgLat, avgLon, count: d.count });
+  }
+
+  // All candidates start unassigned — user assigns on map
+  STATE.marks.WW  = [];
+  STATE.marks.LW  = [];
+  STATE.marks.RC  = null;
+  STATE.marks.PIN = null;
+  STATE.marks._candidates = markCandidates.map(m => ({lat:m.avgLat, lon:m.avgLon, sn:m.sn}));
+  STATE.replayFoundMarks = markCandidates;
+  STATE.replayScanDone = true;
+
+  setScanProgress(100, `Found ${markCandidates.length} marks — tap each on the map to assign`);
+
+  hideScanOverlay();
+  switchTab('map');
+  enterMarkAssignMode();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MARK ASSIGN MODE — map-based interactive role picking
+// ═══════════════════════════════════════════════════════════
+function enterMarkAssignMode() {
+  STATE.markAssignMode = true;
+  STATE.mapView = { zoom: 1, panX: 0, panY: 0 };  // always start fresh
+  // Enable course-up now if we already have WW+LW from auto-suggest
+  if(STATE.marks.WW.length && STATE.marks.LW.length) {
+    STATE.orientCourseUp = true;
+    document.getElementById('orient-btn').textContent = 'COURSE UP';
+  }
+  resizeMapCanvas();
+  drawMap();
+  updateMarkAssignBanner();
+  document.getElementById('mark-assign-banner').style.display = 'block';
+}
+
+function exitMarkAssignMode() {
+  STATE.markAssignMode = false;
+  STATE.marks._candidates = [];
+  document.getElementById('mark-assign-banner').style.display = 'none';
+  updateDataPage();
+  drawMap();
+}
+
+function updateMarkAssignBanner() {
+  const chips = document.getElementById('mab-chips');
+  const ww = STATE.marks.WW.length, lw = STATE.marks.LW.length;
+  const rc = !!STATE.marks.RC, pin = !!STATE.marks.PIN;
+  chips.innerHTML = [
+    `<span class="mab-chip ${ww ? 'set-ww' : ''}">WW ${ww ? '✓ '+ww : '–'}</span>`,
+    `<span class="mab-chip ${lw ? 'set-lw' : ''}">LW ${lw ? '✓ '+lw : '–'}</span>`,
+    `<span class="mab-chip ${rc ? 'set-line' : ''}">RC ${rc ? '✓' : '–'}</span>`,
+    `<span class="mab-chip ${pin ? 'set-line' : ''}">PIN ${pin ? '✓' : '–'}</span>`,
+  ].join('');
+}
+
+function confirmMarkAssignments() {
+  // Write assigned SNs back to config fields
+  const ww = STATE.marks.WW, lw = STATE.marks.LW;
+  if(ww[0]?.sn) document.getElementById('sn-ww0').value = ww[0].sn;
+  if(ww[1]?.sn) document.getElementById('sn-ww1').value = ww[1].sn;
+  if(lw[0]?.sn) document.getElementById('sn-lw0').value = lw[0].sn;
+  if(lw[1]?.sn) document.getElementById('sn-lw1').value = lw[1].sn;
+  if(STATE.marks.RC?.sn)  document.getElementById('sn-rc').value  = STATE.marks.RC.sn;
+  if(STATE.marks.PIN?.sn) document.getElementById('sn-pin').value = STATE.marks.PIN.sn;
+  toast(`Marks confirmed — ${ww.length} WW, ${lw.length} LW`);
+  exitMarkAssignMode();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  LEGACY STUBS (keep API compatible)
+// ═══════════════════════════════════════════════════════════
+const ROLE_COLORS = {'WW-port':'#00e5cc','WW-stbd':'#00e5cc','LW-port':'#00b8a4','LW-stbd':'#00b8a4','RC':'#ffb700','PIN':'#ffb700','other':'#3d6e8a','ignore':'#1a3a55'};
+function showMarkModal() {}
+function closeMarkModal() {}
+function renderMarkList() {}
+function onMarkRoleChange() {}
+function applyMarkAssignments() { confirmMarkAssignments(); }
+
+// ═══════════════════════════════════════════════════════════
+//  REPLAY SCRUBBER — LAZY CHUNK FETCH
+// ═══════════════════════════════════════════════════════════
+const CHUNK_SIZE_MS  = 5 * 60 * 1000;   // 5-minute chunks
+const CHUNK_OVERLAP_MS = 30 * 1000;     // 30s overlap each side
+
+let _scrubDebounce = null;
+
+function onScrub(val) {
+  updateScrubTimeDisplay(val);
+  clearTimeout(_scrubDebounce);
+  _scrubDebounce = setTimeout(() => fetchAndRenderScrub(+val), 250);
+}
+
+async function fetchAndRenderScrub(minuteOffset) {
+  if(!STATE.replayStartTs || !STATE.eventId) return;
+
+  const scrubTs = STATE.replayStartTs + minuteOffset * 60 * 1000;
+  STATE.replayScrubTs = scrubTs;
+
+  // Which chunk bucket covers this timestamp?
+  const bucketIdx = Math.floor((scrubTs - STATE.replayStartTs) / CHUNK_SIZE_MS);
+  const cacheKey  = bucketIdx;
+
+  let chunkData = STATE.replayChunkCache[cacheKey];
+
+  if(!chunkData) {
+    // Fetch this chunk
+    if(STATE.replayFetching) return;  // queue drop — user still scrubbing
+    STATE.replayFetching = true;
+    document.getElementById('chunk-loading').textContent = 'LOADING…';
+
+    const chunkStart = STATE.replayStartTs + bucketIdx * CHUNK_SIZE_MS - CHUNK_OVERLAP_MS;
+    const chunkEnd   = chunkStart + CHUNK_SIZE_MS + CHUNK_OVERLAP_MS * 2;
+    const url = `${API_BASE}/${STATE.eventId}?after=${chunkStart}&before=${chunkEnd}&limit=2000${STATE.division?'&division='+encodeURIComponent(STATE.division):''}`;
+
+    try {
+      const resp = await fetch(url);
+      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      const rows = data?.Rows || data?.rows || [];
+      chunkData = processReplayChunk(rows, chunkStart, chunkEnd);
+      STATE.replayChunkCache[cacheKey] = chunkData;
+    } catch(e) {
+      document.getElementById('chunk-loading').textContent = 'ERR';
+      STATE.replayFetching = false;
+      return;
+    }
+    STATE.replayFetching = false;
+    document.getElementById('chunk-loading').textContent = '';
+  } else {
+    document.getElementById('chunk-loading').textContent = '';
+  }
+
+  // Extract boat positions at scrubTs from chunk
+  renderReplayAtTs(chunkData, scrubTs);
+}
+
+function processReplayChunk(rows, chunkStart, chunkEnd) {
+  // Build per-boat track arrays AND per-mark-SN track arrays for this chunk
+  // role==='mark' is the only reliable indicator — never use SN or displacement alone
+  const tracks = {};
+  const markTracks = {};  // snNumber -> [{ts, lat, lon}]
+  const excluded = getExcluded();
+
+  for(const row of rows) {
+    const [ts, sn, div, sail, , , , role, lat, lon] = row;
+    if(!lat || !lon || +lat===0 || +lon===0) continue;
+    const snN = +sn;
+
+    if(role === 'mark') {
+      if(!markTracks[snN]) markTracks[snN] = [];
+      markTracks[snN].push({ts:+ts, lat:+lat, lon:+lon});
+    } else {
+      const sailStr = String(sail||'');
+      if(!sailStr || excluded.has(sailStr)) continue;
+      if(!tracks[sailStr]) tracks[sailStr] = [];
+      tracks[sailStr].push({ts:+ts, lat:+lat, lon:+lon});
+    }
+  }
+  // Sort all tracks
+  for(const sail of Object.keys(tracks)) tracks[sail].sort((a,b)=>a.ts-b.ts);
+  for(const snN of Object.keys(markTracks)) markTracks[snN].sort((a,b)=>a.ts-b.ts);
+  return { tracks, markTracks, chunkStart, chunkEnd };
+}
+
+function renderReplayAtTs(chunkData, ts) {
+  const { tracks, markTracks } = chunkData;
+  STATE.replayBoatPositions = {};
+  STATE.tracks = {};
+
+  for(const [sail, pts] of Object.entries(tracks)) {
+    // Interpolate position at ts
+    const pos = interpAtTs(pts, ts);
+    if(pos) {
+      STATE.replayBoatPositions[sail] = pos;
+      // Also build a short trail (last 2 minutes of points)
+      STATE.tracks[sail] = pts.filter(p => p.ts >= ts - 120000 && p.ts <= ts);
+    }
+  }
+
+  // Update mark positions at scrub time (live interpolation)
+  if(markTracks) {
+    const sns = getConfiguredSNs();
+    // WW marks
+    const newWW = [];
+    for(const snN of sns.WW) {
+      const pts = markTracks[snN];
+      if(pts) {
+        const pos = interpAtTs(pts, ts);
+        if(pos) {
+          // Preserve sn and any existing metadata from current STATE.marks.WW
+          const existing = STATE.marks.WW.find(m => m.sn === snN) || {};
+          newWW.push({...existing, lat: pos.lat, lon: pos.lon, sn: snN});
+        }
+      }
+    }
+    if(newWW.length) STATE.marks.WW = newWW;
+    // LW marks
+    const newLW = [];
+    for(const snN of sns.LW) {
+      const pts = markTracks[snN];
+      if(pts) {
+        const pos = interpAtTs(pts, ts);
+        if(pos) {
+          const existing = STATE.marks.LW.find(m => m.sn === snN) || {};
+          newLW.push({...existing, lat: pos.lat, lon: pos.lon, sn: snN});
+        }
+      }
+    }
+    if(newLW.length) STATE.marks.LW = newLW;
+    // RC / PIN
+    if(sns.RC && markTracks[sns.RC]) {
+      const pos = interpAtTs(markTracks[sns.RC], ts);
+      if(pos) STATE.marks.RC = {...(STATE.marks.RC||{}), lat: pos.lat, lon: pos.lon, sn: sns.RC};
+    }
+    if(sns.PIN && markTracks[sns.PIN]) {
+      const pos = interpAtTs(markTracks[sns.PIN], ts);
+      if(pos) STATE.marks.PIN = {...(STATE.marks.PIN||{}), lat: pos.lat, lon: pos.lon, sn: sns.PIN};
+    }
+  }
+
+  // Run wind inference on available track data
+  const WW = wwCenter(), LW = lwCenter();
+  if(WW && LW && Object.keys(STATE.tracks).length > 0) {
+    const approxGun = ts - 5 * 60 * 1000;
+    STATE.windInferred = inferWind(STATE.tracks, WW.lat, WW.lon, LW.lat, LW.lon, approxGun);
+    updateBlendedWind();
+  }
+
+  updateDataPage();
+  if(document.getElementById('page-map').classList.contains('active')) drawMap();
+  if(document.getElementById('page-wind').classList.contains('active')) updateWindPage();
+}
+
+function interpAtTs(pts, ts) {
+  if(!pts.length) return null;
+  if(pts.length === 1) return pts[0];
+  // Find surrounding points
+  let lo = pts[0], hi = pts[pts.length-1];
+  for(const p of pts) { if(p.ts <= ts) lo = p; if(p.ts >= ts && hi.ts > p.ts) hi = p; }
+  if(lo === hi) return lo;
+  if(lo.ts === hi.ts) return lo;
+  const f = (ts - lo.ts) / (hi.ts - lo.ts);
+  const cog = brg(lo.lat, lo.lon, hi.lat, hi.lon);
+  const sog = hav(lo.lat, lo.lon, hi.lat, hi.lon) / ((hi.ts - lo.ts) / 1000) * 1.94384;
+  return {
+    ts, lat: lo.lat + (hi.lat - lo.lat) * f,
+    lon: lo.lon + (hi.lon - lo.lon) * f,
+    cog, sog, hdg: cog,
+  };
+}
+
+function init() {
+  drawCompassDial(STATE.windUser);
+  syncAllWindUI(STATE.windUser, STATE.twsUser);
+  // Try to load saved venue on startup
+  try {
+    const saved = JSON.parse(localStorage.getItem('m32tac_venue')||'null');
+    if(saved) {
+      if(saved.ww){document.getElementById('sn-ww0').value=saved.ww[0]||'';document.getElementById('sn-ww1').value=saved.ww[1]||'';}
+      if(saved.lw){document.getElementById('sn-lw0').value=saved.lw[0]||'';document.getElementById('sn-lw1').value=saved.lw[1]||'';}
+      if(saved.rc) document.getElementById('sn-rc').value=saved.rc;
+      if(saved.pin) document.getElementById('sn-pin').value=saved.pin;
+    }
+  } catch(e){}
+  updateDataPage();
+  updateWindPage();
+  updateReachMarkUI();
+}
+
+// Close wind popup on tap outside
+document.addEventListener('click', function(e) {
+  const popup = document.getElementById('wind-edit-popup');
+  const badge = document.getElementById('map-wind-badge');
+  if(popup && popup.classList.contains('visible')) {
+    if(!popup.contains(e.target) && !badge.contains(e.target)) {
+      popup.classList.remove('visible');
+    }
+  }
+});
+
+init();
+</script>
+</body>
+</html>
