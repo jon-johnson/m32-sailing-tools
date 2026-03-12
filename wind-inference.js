@@ -105,6 +105,53 @@
   function vecBearing(v) { return ((Math.atan2(v.vx, v.vy) / D2R) + 360) % 360; }
 
 
+  // ── Adaptive SOG floor ────────────────────────────────────────────────────
+  // Scans all tracks for downwind-heading points in the inference window,
+  // takes the median speed, back-calculates TWS from the polar, then sets
+  // the upwind floor at 60% of polar upwind speed at that TWS.
+  //
+  //   ~5kt TWS  → floor ~5.5kts   (light air, e.g. Day 1 Worlds)
+  //   ~12kt TWS → floor ~9.5kts   (moderate breeze)
+  //   ~18kt TWS → floor ~11kts    (fresh)
+  //
+  // Hard floor 4.5kts — below that the boat is essentially stopped.
+  function estimateSOGfloor(tracks, QUAL_BOATS, usableStart, usableEnd, courseAxis, polarGrid) {
+    const downwindAxis = (courseAxis + 180) % 360;
+    const dwSpeeds = [];
+
+    for (const sail of QUAL_BOATS) {
+      const t = tracks[sail];
+      if (!t || t.length < 10) continue;
+      for (const p of t) {
+        if (p.ts < usableStart || p.ts > usableEnd) continue;
+        const sog = (p.sog || 0) * 0.539957;
+        if (sog < 2) continue;
+        const hdg = p.hdg || 0;
+        const relDW = Math.abs(((hdg - downwindAxis + 540) % 360) - 180);
+        if (relDW < 65) dwSpeeds.push(sog);  // broad downwind cone
+      }
+    }
+
+    if (dwSpeeds.length < 20) return 4.5;  // not enough data, use minimum
+
+    dwSpeeds.sort((a, b) => a - b);
+    const medianDW = dwSpeeds[Math.floor(dwSpeeds.length * 0.5)];
+
+    // Back-calculate TWS: scan polar at VMG-downwind TWA (110°) for best match
+    let bestTWS = 10, bestDiff = Infinity;
+    for (const tws of M32_POLAR_TWS_LIST) {
+      const diff = Math.abs(polarSpeedFn(110, tws, polarGrid) - medianDW);
+      if (diff < bestDiff) { bestDiff = diff; bestTWS = tws; }
+    }
+
+    // Look up polar upwind speed at that TWS (VMG-upwind TWA ~55°)
+    const polarUW = polarSpeedFn(55, bestTWS, polarGrid);
+
+    // Floor = 60% of polar upwind, clamped to [4.5, 14]
+    const floor = Math.max(4.5, Math.min(14, polarUW * 0.60));
+    return +floor.toFixed(1);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   //  inferWind — improved algorithm
   //
@@ -115,8 +162,10 @@
   //     suppressing tacking/poor-trim data. Uses passed-in polarGrid if available.
   //  3. Tacking angle validation: port/stbd angular separation checked against
   //     expected M32 tacking angle (90–110°); confidence reduced if outside range.
-  //  4. Tuned filters: SOG floor 7kts (was 8), hdgAgree 30° (was 24°),
-  //     gentler downwind agreement penalty (/60 not /45).
+  //  4. Adaptive SOG floor: derived from observed median downwind speed → back-
+  //     calculated TWS → 60% of polar upwind speed at that TWS. Automatically
+  //     lower in light air, higher in breeze. Hard floor 4.5kts.
+  //  5. Tuned filters: hdgAgree 30° (was 24°), gentler downwind penalty (/60).
   // ═══════════════════════════════════════════════════════════════════════════
   function inferWind(tracks, wwgateLat, wwgateLon, lwgateLat, lwgateLon, gunTs, raceEndTs, polarGrid) {
     const QUAL_BOATS = Object.keys(tracks || {});
@@ -143,8 +192,11 @@
       courseAxis = brg(lwgateLat, lwgateLon, wwgateLat, wwgateLon);
     }
 
+    // ── Adaptive SOG floor ────────────────────────────────────────────────
+    const sogFloor = estimateSOGfloor(tracks, QUAL_BOATS, usableStart, usableEnd, courseAxis, polarGrid);
+
     // ── PASS 1: rough WF using ±65° cone off course axis ──────────────────
-    const pass1 = collectSegments(tracks, QUAL_BOATS, usableStart, usableEnd, courseAxis, 65, polarGrid);
+    const pass1 = collectSegments(tracks, QUAL_BOATS, usableStart, usableEnd, courseAxis, 65, polarGrid, sogFloor);
     let roughWF = courseAxis; // fallback if insufficient data
     {
       const { uwPort, uwStbd, dwPort, dwStbd } = pass1;
@@ -161,7 +213,7 @@
     }
 
     // ── PASS 2: refined segments using ±65° cone off roughWF ──────────────
-    const pass2 = collectSegments(tracks, QUAL_BOATS, usableStart, usableEnd, roughWF, 65, polarGrid);
+    const pass2 = collectSegments(tracks, QUAL_BOATS, usableStart, usableEnd, roughWF, 65, polarGrid, sogFloor);
     const { uwPort, uwStbd, dwPort, dwStbd } = pass2;
 
     const upN = uwPort.length + uwStbd.length;
@@ -248,7 +300,7 @@
       startTrimS: Math.round(startTrimMs / 1000),
       endTrimS: Math.max(0, Math.round((inferredEnd - usableEnd) / 1000)),
       usableStartTs: usableStart, usableEndTs: usableEnd,
-      method: 'iterative-cone-polar-weighted-v2',
+      sogFloor, method: 'iterative-cone-polar-weighted-v2',
       samples: { uwPort, uwStbd, dwPort, dwStbd },
       means: { uwPort: meanUwPort, uwStbd: meanUwStbd, dwPort: meanDwPort, dwStbd: meanDwStbd }
     };
@@ -256,7 +308,7 @@
 
   // ── Segment collection (shared by pass 1 and pass 2) ─────────────────────
   // halfCone: degrees either side of the axis to accept as upwind/downwind
-  function collectSegments(tracks, QUAL_BOATS, usableStart, usableEnd, refAxis, halfCone, polarGrid) {
+  function collectSegments(tracks, QUAL_BOATS, usableStart, usableEnd, refAxis, halfCone, polarGrid, sogFloor) {
     const downwindAxis = (refAxis + 180) % 360;
     const uwPort = [], uwStbd = [], dwPort = [], dwStbd = [];
     const perBoat = [];
@@ -276,7 +328,7 @@
         if (p.ts < usableStart || p.ts > usableEnd) continue;
 
         const sog = (p.sog || 0) * 0.539957;
-        if (sog < 7 || sog > 35) continue;  // lowered floor from 8 → 7kts
+        if (sog < (sogFloor || 4.5) || sog > 35) continue;
 
         const dt = Math.max(0.001, ((b.ts || 0) - (a.ts || 0)) / 1000);
         const spanM = hav(a.lat, a.lon, b.lat, b.lon);
