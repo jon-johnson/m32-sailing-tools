@@ -13,163 +13,112 @@
     --navy2:  #0a1628;
     --navy3:  #0d1e35;
     --teal:   #00ccff;
-    --teal2:  #00a8d4;
     --green:  #00ff99;
-    --purple: #a78bfa;
-    --orange: #ff8c00;
     --white:  #e8f4f8;
     --text2:  #7ab8cc;
     --text3:  #4a7a8a;
   }
 
   html, body {
-    height: 100%;
     background: var(--navy);
     color: var(--white);
     font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
   }
 
   body {
-    display: flex;
-    flex-direction: column;
+    display: flex; flex-direction: column;
     align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    padding: 32px 16px;
-    gap: 48px;
+    padding: 48px 16px 40px; gap: 40px;
   }
 
-  /* ── Header ── */
-  .header {
-    text-align: center;
-  }
-
-  .header-eyebrow {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.25em;
-    color: var(--text3);
-    margin-bottom: 10px;
-  }
-
+  .header { text-align: center; }
+  .header-eyebrow { font-size: 10px; letter-spacing: 0.25em; color: var(--text3); margin-bottom: 10px; }
   .header-title {
     font-family: 'Orbitron', monospace;
     font-size: clamp(22px, 5vw, 38px);
-    font-weight: 900;
-    letter-spacing: 0.08em;
-    color: var(--white);
-    line-height: 1.1;
+    font-weight: 900; letter-spacing: 0.08em;
+    color: var(--white); line-height: 1.1;
   }
+  .header-title span { color: var(--teal); }
+  .header-sub { margin-top: 10px; font-size: 11px; color: var(--text2); letter-spacing: 0.1em; }
 
-  .header-title span {
-    color: var(--teal);
-  }
-
-  .header-sub {
-    margin-top: 10px;
-    font-size: 11px;
-    color: var(--text2);
-    letter-spacing: 0.1em;
-  }
-
-  /* ── Tool cards ── */
-  .cards {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-    width: 100%;
-    max-width: 480px;
-  }
-
-  .card {
-    display: block;
-    text-decoration: none;
-    background: var(--navy2);
-    border: 1px solid rgba(0,204,255,.18);
-    border-radius: 6px;
-    padding: 24px 28px;
-    transition: border-color .15s, background .15s, transform .1s;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg, rgba(0,204,255,.04) 0%, transparent 60%);
-    pointer-events: none;
-  }
-
-  .card:hover {
-    border-color: rgba(0,204,255,.5);
-    background: var(--navy3);
-    transform: translateY(-1px);
-  }
-
-  .card-tag {
-    font-size: 8px;
-    letter-spacing: 0.2em;
-    color: var(--text3);
-    margin-bottom: 8px;
-  }
-
-  .card-title {
-    font-family: 'Orbitron', monospace;
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    color: var(--white);
-    margin-bottom: 10px;
-  }
-
-  .card-desc {
-    font-size: 11px;
-    line-height: 1.7;
-    color: var(--text2);
-  }
-
-  .card-arrow {
-    position: absolute;
-    top: 24px;
-    right: 24px;
-    font-size: 18px;
-    color: var(--teal);
-    opacity: 0.5;
-    transition: opacity .15s, transform .15s;
-  }
-
-  .card:hover .card-arrow {
-    opacity: 1;
-    transform: translateX(3px);
-  }
-
-  /* accent colours per card */
-  .card.race  { border-color: rgba(0,204,255,.18); }
-  .card.race:hover { border-color: rgba(0,204,255,.5); }
-  .card.race .card-title { color: var(--teal); }
-  .card.race .card-arrow { color: var(--teal); }
-
-  .card.tactical { border-color: rgba(0,255,153,.12); }
-  .card.tactical:hover { border-color: rgba(0,255,153,.4); }
-  .card.tactical .card-title { color: var(--green); }
-  .card.tactical .card-arrow { color: var(--green); }
-
-  /* ── Footer ── */
-  .footer {
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    color: var(--text3);
-    text-align: center;
-  }
-
-  /* ── Decorative rule ── */
   .rule {
-    width: 100%;
-    max-width: 480px;
-    height: 1px;
+    width: 100%; max-width: 520px; height: 1px;
     background: linear-gradient(90deg, transparent, rgba(0,204,255,.25), transparent);
   }
+
+  .section {
+    display: flex; flex-direction: column;
+    gap: 12px; width: 100%; max-width: 520px;
+  }
+
+  .section-label {
+    font-size: 9px; letter-spacing: 0.2em; color: var(--text3);
+    padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,.06);
+  }
+
+  /* Tactical tool card */
+  .card {
+    display: block; text-decoration: none;
+    background: var(--navy2);
+    border: 1px solid rgba(0,255,153,.12);
+    border-radius: 6px; padding: 20px 24px;
+    transition: border-color .15s, background .15s, transform .1s;
+    position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, rgba(0,255,153,.04) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .card:hover { border-color: rgba(0,255,153,.4); background: var(--navy3); transform: translateY(-1px); }
+  .card-tag { font-size: 8px; letter-spacing: 0.2em; color: var(--text3); margin-bottom: 6px; }
+  .card-title { font-family: 'Orbitron', monospace; font-size: 14px; font-weight: 700; letter-spacing: 0.1em; color: var(--green); margin-bottom: 8px; }
+  .card-desc { font-size: 11px; line-height: 1.7; color: var(--text2); }
+  .card-arrow { position: absolute; top: 20px; right: 20px; font-size: 16px; color: var(--green); opacity: 0.5; transition: opacity .15s, transform .15s; }
+  .card:hover .card-arrow { opacity: 1; transform: translateX(3px); }
+
+  /* Event rows */
+  .event-row {
+    background: var(--navy2);
+    border: 1px solid rgba(0,204,255,.14);
+    border-radius: 6px; padding: 16px 20px;
+    display: flex; align-items: center; gap: 16px;
+    transition: border-color .15s, background .15s;
+  }
+  .event-row:hover { border-color: rgba(0,204,255,.35); background: var(--navy3); }
+  .event-info { flex: 1; min-width: 0; }
+  .event-title {
+    font-family: 'Orbitron', monospace; font-size: 12px;
+    font-weight: 700; letter-spacing: 0.08em; color: var(--teal);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .event-sub { font-size: 10px; color: var(--text3); margin-top: 3px; letter-spacing: 0.06em; }
+  .view-btn {
+    flex-shrink: 0;
+    font-family: 'Orbitron', monospace; font-size: 9px;
+    font-weight: 700; letter-spacing: 0.12em;
+    background: rgba(0,204,255,.08);
+    border: 1px solid rgba(0,204,255,.35);
+    color: var(--teal); padding: 7px 14px;
+    border-radius: 3px; cursor: pointer; text-decoration: none;
+    transition: background .15s, border-color .15s;
+    white-space: nowrap;
+  }
+  .view-btn:hover { background: rgba(0,204,255,.18); border-color: rgba(0,204,255,.6); }
+
+  /* States */
+  .state-msg { font-size: 11px; color: var(--text3); letter-spacing: 0.1em; padding: 16px 0; text-align: center; }
+  .spinner {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid rgba(0,204,255,.2); border-top-color: var(--teal);
+    border-radius: 50%; animation: spin .7s linear infinite;
+    vertical-align: middle; margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .footer { font-size: 9px; letter-spacing: 0.12em; color: var(--text3); text-align: center; }
 </style>
 </head>
 <body>
@@ -182,19 +131,18 @@
 
 <div class="rule"></div>
 
-<nav class="cards">
+<div class="section">
+  <div class="section-label">RACE REPORTS</div>
+  <div id="eventList">
+    <div class="state-msg"><span class="spinner"></span>LOADING EVENTS…</div>
+  </div>
+</div>
 
-  <a class="card race" href="race-report.html?event=worlds-2025">
-    <div class="card-tag">POST-RACE ANALYSIS</div>
-    <div class="card-title">RACE REPORT</div>
-    <div class="card-desc">
-      Full regatta analytics — start performance, reach order, VMG, wind inference,
-      fleet scoring, and live polar calibration via Firestore.
-    </div>
-    <div class="card-arrow">→</div>
-  </a>
+<div class="rule"></div>
 
-  <a class="card tactical" href="m32_tactical_17.html">
+<div class="section">
+  <div class="section-label">LIVE TOOLS</div>
+  <a class="card" href="m32_tactical.html">
     <div class="card-tag">LIVE COACHING</div>
     <div class="card-title">TACTICAL DISPLAY</div>
     <div class="card-desc">
@@ -203,14 +151,57 @@
     </div>
     <div class="card-arrow">→</div>
   </a>
-
-</nav>
+</div>
 
 <div class="rule"></div>
 
-<footer class="footer">
-  M32 NORTH AMERICAN CIRCUIT · TOOLS BY JON JOHNSON
-</footer>
+<footer class="footer">M32 NORTH AMERICAN CIRCUIT · TOOLS BY JON JOHNSON</footer>
+
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+  import { getFirestore, collection, getDocs }
+    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+  const firebaseConfig = {
+    apiKey:            "AIzaSyBd_uSyPgT--yzFsgYtbkABjotvWdVLV7g",
+    authDomain:        "m32-sailing-tools.firebaseapp.com",
+    projectId:         "m32-sailing-tools",
+    storageBucket:     "m32-sailing-tools.firebasestorage.app",
+    messagingSenderId: "709404812553",
+    appId:             "1:709404812553:web:6a7b8d090dbdbb9678dfd8"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db  = getFirestore(app);
+  const listEl = document.getElementById('eventList');
+
+  function renderEvents(events) {
+    if(!events.length) {
+      listEl.innerHTML = '<div class="state-msg">NO EVENTS YET — OPEN A RACE REPORT TO REGISTER IT</div>';
+      return;
+    }
+    listEl.innerHTML = events.map(ev => `
+      <div class="event-row">
+        <div class="event-info">
+          <div class="event-title">${ev.title || ev.slug}</div>
+          <div class="event-sub">${[ev.subtitle, ev.dates].filter(Boolean).join(' · ')}</div>
+        </div>
+        <a class="view-btn" href="race-report.html?event=${ev.slug}&mode=view">VIEW →</a>
+      </div>
+    `).join('');
+  }
+
+  try {
+    const snap = await getDocs(collection(db, 'events'));
+    const events = [];
+    snap.forEach(d => events.push(d.data()));
+    events.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+    renderEvents(events);
+  } catch(e) {
+    console.warn('[Index] Firestore load failed', e);
+    listEl.innerHTML = '<div class="state-msg">COULD NOT LOAD EVENTS</div>';
+  }
+</script>
 
 </body>
 </html>
