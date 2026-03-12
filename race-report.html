@@ -592,32 +592,16 @@ tr:hover td{background:var(--bg3)}
       <div id="raceTwdStateBottom" class="tws-state"></div>
     </div>
   </div>
-  <button class="export-btn" id="exportBtn" onclick="exportPDF()" style="min-width:210px;
-  font-family:Orbitron,monospace;font-size:9px;font-weight:700;letter-spacing:1px;
-  background:rgba(0,204,255,.1);border:1px solid rgba(0,204,255,.4);color:#00ccff;
-  padding:6px 14px;border-radius:3px;cursor:pointer;
-  transition:all .15s"
-  onmouseover="this.style.background='rgba(0,204,255,.2)'"
-  onmouseout="this.style.background='rgba(0,204,255,.1)'">
-  ⬇ PDF — <span id="exportDayLabel"></span>
-</button>
-<button class="export-btn" id="polarBtn" onclick="showPolarProposal()" style="min-width:210px;
-  font-family:Orbitron,monospace;font-size:9px;font-weight:700;letter-spacing:1px;
-  background:rgba(0,255,153,.08);border:1px solid rgba(0,255,153,.35);color:#00ff99;
-  padding:6px 14px;border-radius:3px;cursor:pointer;
-  transition:all .15s"
-  onmouseover="this.style.background='rgba(0,255,153,.16)'"
-  onmouseout="this.style.background='rgba(0,255,153,.08)'">
-  POLAR — <span id="polarStatusLabel">BASE</span>
-</button>
-<button id="polarSyncBtn" onclick="pushPolarToFirestore()" style="min-width:160px;
+  
+
+<button id="polarSyncBtn" onclick="showPolarProposal()" style="min-width:160px;
   font-family:Orbitron,monospace;font-size:9px;font-weight:700;letter-spacing:1px;
   background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.35);color:#a78bfa;
   padding:6px 14px;border-radius:3px;cursor:pointer;
   transition:all .15s"
   onmouseover="this.style.background='rgba(167,139,250,.16)'"
   onmouseout="this.style.background='rgba(167,139,250,.08)'">
-  ☁ SYNC — <span id="polarSyncLabel">—</span>
+  ☁ POLAR SYNC — <span id="polarSyncLabel">—</span>
 </button>
 </div>
 
