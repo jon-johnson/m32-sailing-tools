@@ -607,6 +607,8 @@ tr:hover td{background:var(--bg3)}
     window._firestoreReady = Promise.resolve();
     console.log('Firestore REST gun loader ready');
   </script>
+  <!-- Shared wind inference module (inferWind, computeDayWind, blendRaceAndDayWind) -->
+  <script src="wind-inference.js"></script>
 </head>
 <body>
 
@@ -1885,167 +1887,6 @@ function circularBlend(a, wa, b, wb){
   const sy=Math.sin(a*D2R)*wa + Math.sin(b*D2R)*wb;
   return (Math.atan2(sy, sx)/D2R + 360) % 360;
 }
-function inferWind(tracks, wwgateLat, wwgateLon, lwgateLat, lwgateLon, gunTs, raceEndTs){
-  const QUAL_BOATS=Object.keys(tracks||{});
-  const _gun=(gunTs!=null ? gunTs : (window.GUN||0));
-  let inferredEnd = raceEndTs;
-  if(inferredEnd==null){
-    let mx=_gun+720000;
-    for(const sail of QUAL_BOATS){
-      const t=tracks[sail];
-      if(t && t.length) mx=Math.max(mx, t[t.length-1].ts||mx);
-    }
-    inferredEnd=mx;
-  }
-  const startTrimMs=120000;
-  const capFromStartMs=720000;
-  const usableStart=_gun + startTrimMs;
-  const usableEnd=Math.max(usableStart + 90000, Math.min(inferredEnd, _gun + capFromStartMs));
-  let upwindAxis = 315;
-  if(wwgateLat != null && lwgateLat != null) upwindAxis = brg(lwgateLat, lwgateLon, wwgateLat, wwgateLon);
-  const downwindAxis = (upwindAxis + 180) % 360;
-  const uwPort=[], uwStbd=[], dwPort=[], dwStbd=[];
-  const perBoat=[];
-
-  const vecFrom=(sog,cog)=>{
-    const r=cog*D2R;
-    return {vx:sog*Math.sin(r), vy:sog*Math.cos(r)};
-  };
-  const vecMean=(arr)=>{
-    if(!arr.length) return null;
-    let sx=0, sy=0, sw=0;
-    for(const a of arr){ const w=Math.max(0.01,a.weight||1); sx+=(a.vx||0)*w; sy+=(a.vy||0)*w; sw+=w; }
-    if(!sw) return null;
-    return {vx:sx/sw, vy:sy/sw, mag:Math.hypot(sx/sw, sy/sw)};
-  };
-  const vecBearing=(v)=>((Math.atan2(v.vx, v.vy)/D2R)+360)%360;
-
-  for(const sail of QUAL_BOATS){
-    const t=tracks[sail]; if(!t || t.length<25) continue;
-    let stableN=0;
-    for(let i=3;i<t.length-3;i++){
-      const p=t[i], a=t[i-3], b=t[i+3];
-      if(!p || !a || !b) continue;
-      if(p.ts<usableStart || p.ts>usableEnd) continue;
-      const sog=(p.sog||0)*0.539957;
-      if(sog<8 || sog>35) continue;
-      const dt=Math.max(0.001, ((b.ts||0)-(a.ts||0))/1000);
-      const spanM=hav(a.lat,a.lon,b.lat,b.lon);
-      if(dt<6 || spanM<20) continue;
-      const cog=brg(a.lat,a.lon,b.lat,b.lon);
-      const cogPrev=brg(t[i-3].lat,t[i-3].lon,t[i-1].lat,t[i-1].lon);
-      const cogNext=brg(t[i+1].lat,t[i+1].lon,t[i+3].lat,t[i+3].lon);
-      const turn=angDiff(cogPrev, cogNext);
-      const hdgAgree=angDiff(cog, p.hdg||cog);
-      const acc=Math.abs(((t[i+1].sog||0) - (t[i-1].sog||0))*0.539957);
-      if(turn>16 || hdgAgree>24 || acc>1.4) continue;
-      const q=Math.max(0,1-turn/18) * Math.max(0,1-hdgAgree/28) * Math.max(0,1-acc/1.6) * Math.max(0, Math.min(1.2, spanM/45));
-      if(q<0.28) continue;
-      stableN++;
-      const relUW=((cog-upwindAxis+540)%360)-180;
-      const relDW=((cog-downwindAxis+540)%360)-180;
-      const v=vecFrom(sog,cog);
-      const row={angle:cog,weight:q,sog,spanM,dt,vx:v.vx,vy:v.vy,boat:sail};
-      if(Math.abs(relUW) <= 52){
-        if(relUW > 0) uwPort.push({...row, rel:relUW}); else uwStbd.push({...row, rel:relUW});
-      }else if(Math.abs(relDW) <= 52){
-        if(relDW < 0) dwPort.push({...row, rel:relDW}); else dwStbd.push({...row, rel:relDW});
-      }
-    }
-    if(stableN) perBoat.push({sail, stableN});
-  }
-
-  const upN=uwPort.length+uwStbd.length, dwN=dwPort.length+dwStbd.length;
-  const meanUwPort=vecMean(uwPort), meanUwStbd=vecMean(uwStbd), meanDwPort=vecMean(dwPort), meanDwStbd=vecMean(dwStbd);
-  let wfUp=null, wfDw=null, tackAngle=null, gybeAngle=null;
-  if(meanUwPort && meanUwStbd && uwPort.length>=4 && uwStbd.length>=4){
-    const sum={vx:meanUwPort.vx+meanUwStbd.vx, vy:meanUwPort.vy+meanUwStbd.vy};
-    wfUp=vecBearing(sum);
-    const pm=weightedCircMean(uwPort.map(s=>({angle:s.angle,weight:s.weight})));
-    const sm=weightedCircMean(uwStbd.map(s=>({angle:s.angle,weight:s.weight})));
-    tackAngle=angDiff(pm,sm); if(tackAngle>180) tackAngle=360-tackAngle; if(tackAngle>90) tackAngle=180-tackAngle;
-  }
-  if(meanDwPort && meanDwStbd && dwPort.length>=4 && dwStbd.length>=4){
-    const sum={vx:meanDwPort.vx+meanDwStbd.vx, vy:meanDwPort.vy+meanDwStbd.vy};
-    wfDw=(vecBearing(sum)+180)%360;
-    const pm=weightedCircMean(dwPort.map(s=>({angle:s.angle,weight:s.weight})));
-    const sm=weightedCircMean(dwStbd.map(s=>({angle:s.angle,weight:s.weight})));
-    gybeAngle=angDiff(pm,sm); if(gybeAngle>180) gybeAngle=360-gybeAngle; if(gybeAngle>90) gybeAngle=180-gybeAngle;
-  }
-
-  let wf=wfUp!=null ? wfUp : (wfDw!=null ? wfDw : upwindAxis);
-  let agreement = wfUp!=null && wfDw!=null ? angDiff(wfUp,wfDw) : null;
-  if(wfUp!=null && wfDw!=null){
-    const wUp=Math.max(1, upN) * 1.25;
-    const wDw=Math.max(1, dwN) * 0.55 * Math.max(0.3, 1-(agreement||0)/45);
-    wf=circularBlend(wfUp,wUp,wfDw,wDw);
-  }
-  const stablePts=upN+dwN;
-  const spreadFrom=(arr,wfRef)=>{
-    if(!arr.length) return 180;
-    const vals=arr.map(s=>Math.abs((((s.angle-wfRef+540)%360)-180)-180)).sort((a,b)=>a-b);
-    return vals[Math.floor(vals.length*0.7)] ?? 180;
-  };
-  const spread=Math.min(spreadFrom(uwPort,wf), spreadFrom(uwStbd,wf));
-  let confidence = Math.min(0.98, 0.16 + Math.min(0.40, stablePts/140) + (wfUp!=null?0.18:0) + (wfDw!=null?0.06:0));
-  confidence *= Math.max(0.35, 1 - Math.max(0, (spread-32))/40);
-  if(agreement!=null) confidence *= Math.max(0.45, 1 - agreement/50);
-  const fallback = wfUp==null && wfDw==null;
-  if(fallback) confidence = 0.16;
-  return {
-    wf, upwindAxis, downwindAxis,
-    wfUp, wfDw, agreement,
-    port: weightedCircMean(uwPort.map(s=>({angle:s.angle,weight:s.weight}))),
-    stbd: weightedCircMean(uwStbd.map(s=>({angle:s.angle,weight:s.weight}))),
-    tack: tackAngle||90, gybe: gybeAngle||null,
-    n: perBoat.length, stableN: stablePts,
-    portN: uwPort.length, stbdN: uwStbd.length,
-    dwPortN: dwPort.length, dwStbdN: dwStbd.length,
-    confidence:+confidence.toFixed(2),
-    fallback,
-    startTrimS: Math.round(startTrimMs/1000), endTrimS: Math.max(0, Math.round((inferredEnd-usableEnd)/1000)),
-    usableStartTs: usableStart, usableEndTs: usableEnd,
-    method:'stable-segment-velocity-clusters-120s-to-12min',
-    samples:{uwPort, uwStbd, dwPort, dwStbd},
-    means:{uwPort:meanUwPort, uwStbd:meanUwStbd, dwPort:meanDwPort, dwStbd:meanDwStbd}
-  };
-}
-function computeDayWind(event){
-  const races=(event?._races||[]).filter(Boolean).filter(rd=>rd.WF_RACE_OBJ && rd.WF_RACE_OBJ.wf!=null);
-  if(!races.length) return null;
-  const weighted=[];
-  for(const rd of races){
-    const wObj=rd.WF_RACE_OBJ; const w=Math.max(0.15, (wObj.confidence||0.2)) * Math.max(1, wObj.stableN||10);
-    weighted.push({angle:wObj.wf, weight:w, raceNum:rd.raceNum});
-  }
-  const wf=weightedCircMean(weighted);
-  const spreads=weighted.map(x=>angDiff(x.angle,wf)).sort((a,b)=>a-b);
-  const spread=spreads.length?spreads[Math.floor(spreads.length/2)]:null;
-  let confidence=Math.min(0.95, 0.25 + weighted.length*0.12 + Math.max(0, 0.32 - (spread||0)/40));
-  return {wf, nRaces:weighted.length, spread, confidence:+confidence.toFixed(2), method:'day-consensus'};
-}
-function blendRaceAndDayWind(raceObj, dayObj){
-  if(raceObj && !dayObj) return {...raceObj, source:'race'};
-  if(dayObj && !raceObj) return {...dayObj, source:'day'};
-  if(!raceObj && !dayObj) return null;
-  const agreement=angDiff(raceObj.wf, dayObj.wf);
-  let wr=0.70;
-  const rc=(raceObj.confidence||0.3), dc=(dayObj.confidence||0.3);
-  if(rc<0.45) wr=0.58;
-  if(rc<0.30) wr=0.45;
-  if(agreement>12) wr=Math.max(0.45, wr-0.10);
-  if(agreement>20) wr=Math.max(0.38, wr-0.12);
-  const wd=1-wr;
-  return {
-    wf:circularBlend(raceObj.wf, wr, dayObj.wf, wd),
-    confidence:+Math.min(0.96, rc*wr + dc*wd).toFixed(2),
-    agreement:+agreement.toFixed(1),
-    raceWf:raceObj.wf, dayWf:dayObj.wf,
-    source:'blend',
-    race:raceObj, day:dayObj,
-    stableN:raceObj.stableN||0
-  };
-}
 // ─── GYBE ANGLE INFERENCE ───
 // Mirror of inferWind but for downwind legs.
 // Wind from ~315°, dead downwind = ~135°.
@@ -2993,7 +2834,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
 
   // Wind inference — race-level, later blended with same-day consensus
   const raceEnd = nextGunTs ? Math.min(gunTs + 1200000, nextGunTs - 1000) : gunTs + 1200000;
-  const WF_RACE_OBJ = WWGATE && LWGATE ? inferWind(tracks, WWGATE.lat, WWGATE.lon, LWGATE.lat, LWGATE.lon, gunTs, raceEnd) : null;
+  const WF_RACE_OBJ = WWGATE && LWGATE ? inferWind(tracks, WWGATE.lat, WWGATE.lon, LWGATE.lat, LWGATE.lon, gunTs, raceEnd, getPolarGrid()) : null;
   const WF_OBJ = WF_RACE_OBJ;
   const WF = WF_RACE_OBJ ? WF_RACE_OBJ.wf : null;
 
