@@ -5394,7 +5394,8 @@ async function loadEventConfig() {
 }
 
 // Bootstrap: load event config + Firestore polar + race data, then init
-(async()=>{\n  // 1. Load event JSON (must come first — populates EVENTS, COL, etc.)
+(async()=>{
+  // 1. Load event JSON (must come first — populates EVENTS, COL, etc.)
   try { await loadEventConfig(); } catch(e) { return; }
   // 2. Wait for Firestore polar (kicked off in parallel at page load)
   if(window._polarLoadPromise) await window._polarLoadPromise;
