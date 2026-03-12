@@ -512,6 +512,36 @@ tr:hover td{background:var(--bg3)}
     window._firestorePolar    = { loadPolarFromFirestore, savePolarToFirestore };
     window._firestoreRaceData = { saveRaceDataToFirestore, loadAllRaceDataFromFirestore };
 
+    // ── EVENT REGISTRY ─────────────────────────────────────────────────────────
+    // Auto-registers an event in Firestore when the race report is first opened.
+    // The index page queries this collection to discover available events.
+    async function registerEventInFirestore(slug, title, subtitle, dates) {
+      try {
+        await setDoc(doc(db, 'events', slug), {
+          slug, title, subtitle: subtitle || '', dates: dates || '',
+          lastSeen: Date.now(),
+        }, { merge: true });
+        console.log(`[Event] Registered in Firestore: ${slug}`);
+      } catch(e) {
+        console.warn('[Event] Registry write failed', e);
+      }
+    }
+
+    async function loadEventsFromFirestore() {
+      try {
+        const snap = await getDocs(collection(db, 'events'));
+        const events = [];
+        snap.forEach(d => events.push(d.data()));
+        events.sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+        return events;
+      } catch(e) {
+        console.warn('[Event] Registry load failed', e);
+        return [];
+      }
+    }
+
+    window._firestoreEvents = { registerEventInFirestore, loadEventsFromFirestore };
+
     // ── Kick off polar load immediately ───────────────────────────────────────
     window._polarLoadPromise = loadPolarFromFirestore().then(result => {
       if (result) {
@@ -5400,7 +5430,16 @@ async function loadEventConfig() {
   // 2. Wait for Firestore polar (kicked off in parallel at page load)
   if(window._polarLoadPromise) await window._polarLoadPromise;
   updatePolarSyncBadge();
-  // 3. Load all race data (reach marks + wind overrides) from Firestore
+  // 3. Register this event in Firestore so index page can discover it
+  if(!VIEW_MODE && window._firestoreEvents && window._activeEventId) {
+    const dates = EVENTS.length
+      ? `${EVENTS[0].date || ''}${EVENTS.length > 1 ? ' – ' + EVENTS[EVENTS.length-1].date : ''}`
+      : '';
+    window._firestoreEvents.registerEventInFirestore(
+      window._activeEventId, REGATTA_TITLE, REGATTA_SUBTITLE, dates
+    );
+  }
+  // 4. Load all race data (reach marks + wind overrides) from Firestore
   if(window._activeEventId && window._firestoreRaceData) {
     try {
       const raceData = await window._firestoreRaceData.loadAllRaceDataFromFirestore(window._activeEventId);
