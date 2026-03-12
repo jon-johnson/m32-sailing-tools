@@ -5137,6 +5137,49 @@ async function init(){
   }
 }
 
+// ── Event config globals (populated by loadEventConfig before init) ──────────
+let REGATTA_TITLE    = 'M32 Race Report';
+let REGATTA_SUBTITLE = 'Loading event…';
+let EVENTS           = [];
+let EXCLUDED_BOATS   = [];
+let BOATS_ALL        = [];
+let COL              = {};
+let TEAM_NAMES       = {};
+let OFFICIAL_RESULTS_BY_DAY = {};
+let OFFICIAL_RESULTS = {};
+let GATE_SNS         = { WW:[], LW:[], RC_SNS:[], PIN_SN:null };
+
+async function loadEventConfig() {
+  const params  = new URLSearchParams(window.location.search);
+  const slug    = params.get('event') || 'worlds-2025';
+  const base    = window.location.href.replace(/[^/]*$/, '');
+  const jsonUrl = `${base}events/${slug}.json`;
+  let cfg;
+  try {
+    const res = await fetch(jsonUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    cfg = await res.json();
+    console.log(`[Event] Loaded ${slug}: ${cfg.title}`);
+  } catch(e) {
+    console.error('[Event] Failed to load event config:', jsonUrl, e);
+    document.getElementById('regattatitle').textContent = 'EVENT NOT FOUND';
+    document.getElementById('regattasub').textContent   = `Could not load events/${slug}.json`;
+    throw e;
+  }
+  REGATTA_TITLE           = cfg.title    || slug;
+  REGATTA_SUBTITLE        = cfg.subtitle || '';
+  EVENTS                  = cfg.days     || [];
+  EXCLUDED_BOATS          = cfg.fleet?.excludedBoats || [];
+  BOATS_ALL               = cfg.fleet?.boatsAll      || [];
+  COL                     = cfg.fleet?.colours       || {};
+  TEAM_NAMES              = cfg.fleet?.teamNames     || {};
+  OFFICIAL_RESULTS_BY_DAY = cfg.officialResults      || {};
+  OFFICIAL_RESULTS        = OFFICIAL_RESULTS_BY_DAY[0] || {};
+  GATE_SNS                = cfg.markSNs || { WW:[], LW:[], RC_SNS:[], PIN_SN:null };
+  document.title = `${REGATTA_SUBTITLE} · Race Report`;
+  window.ACTIVE_EVENT_LABEL = EVENTS.map(e => e.label).join(', ');
+}
+
 // Bootstrap: load event config + Firestore polar, then init
 (async()=>{
   // 1. Load event JSON (must come first — populates EVENTS, COL, etc.)
