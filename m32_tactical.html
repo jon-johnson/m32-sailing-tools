@@ -461,6 +461,8 @@ input[type=range] { width: 100%; accent-color: var(--teal); height: 4px; margin:
 /* boat trail on replay map */
 .trail-line { stroke-width: 1; stroke-opacity: 0.4; fill: none; }
 </style>
+<!-- Shared wind inference module (inferWind, computeDayWind, blendRaceAndDayWind) -->
+<script src="wind-inference.js"></script>
 </head>
 <body>
 
@@ -1432,7 +1434,7 @@ function processRows(rows, sns, excluded) {
   const LW = lwCenter();
   if(WW && LW) {
     const gunTs = now - 10 * 60 * 1000; // approximate: use 10min ago as "gun"
-    STATE.windInferred = inferWind(tracks, WW.lat, WW.lon, LW.lat, LW.lon, gunTs);
+    STATE.windInferred = inferWind(tracks, WW.lat, WW.lon, LW.lat, LW.lon, gunTs, null, null);
   }
   updateBlendedWind();
   updateDataPage();
@@ -1531,68 +1533,6 @@ function updateReachMarkUI() {
 // ═══════════════════════════════════════════════════════════
 //  WIND INFERENCE (ported from race report)
 // ═══════════════════════════════════════════════════════════
-function inferWind(tracks, wwLat, wwLon, lwLat, lwLon, gunTs) {
-  const QUAL_BOATS = Object.keys(tracks||{});
-  const usableStart = gunTs + 120000;
-  const usableEnd   = gunTs + 720000;
-  const upwindAxis = brg(lwLat,lwLon,wwLat,wwLon);
-  const downwindAxis = (upwindAxis+180)%360;
-  const uwPort=[], uwStbd=[], dwPort=[], dwStbd=[];
-
-  for(const sail of QUAL_BOATS) {
-    const t = tracks[sail]; if(!t||t.length<10) continue;
-    for(let i=2;i<t.length-2;i++){
-      const p=t[i],a=t[i-2],b=t[i+2];
-      if(!p||!a||!b) continue;
-      const sog=p.sog||0;
-      if(sog<6||sog>35) continue;
-      const cog=brg(a.lat,a.lon,b.lat,b.lon);
-      const turn=Math.abs(angDiff(brg(t[i-2].lat,t[i-2].lon,t[i-1].lat,t[i-1].lon), brg(t[i+1].lat,t[i+1].lon,t[i+2].lat,t[i+2].lon)));
-      if(turn>20) continue;
-      const q = Math.max(0.1, 1 - turn/22) * Math.min(1.2, sog/12);
-      const relUW = ((cog-upwindAxis+540)%360)-180;
-      const relDW = ((cog-downwindAxis+540)%360)-180;
-      const row = {angle:cog,weight:q,sog};
-      if(Math.abs(relUW)<=55){ if(relUW>0) uwPort.push(row); else uwStbd.push(row); }
-      else if(Math.abs(relDW)<=55){ if(relDW<0) dwPort.push(row); else dwStbd.push(row); }
-    }
-  }
-
-  let wfUp=null, wfDw=null;
-  const vMean = arr => {
-    if(!arr.length) return null;
-    let sx=0,sy=0,sw=0;
-    for(const a of arr){const w=a.weight||1;sx+=Math.cos(a.angle*D2R)*w;sy+=Math.sin(a.angle*D2R)*w;sw+=w;}
-    return sw?{vx:sx/sw,vy:sy/sw}:null;
-  };
-  const vBrg = v => ((Math.atan2(v.vx,v.vy)/D2R)+360)%360;
-
-  if(uwPort.length>=3&&uwStbd.length>=3){
-    const mp=vMean(uwPort),ms=vMean(uwStbd);
-    if(mp&&ms) wfUp=vBrg({vx:mp.vx+ms.vx,vy:mp.vy+ms.vy});
-  }
-  if(dwPort.length>=3&&dwStbd.length>=3){
-    const mp=vMean(dwPort),ms=vMean(dwStbd);
-    if(mp&&ms) wfDw=(vBrg({vx:mp.vx+ms.vx,vy:mp.vy+ms.vy})+180)%360;
-  }
-
-  let wf = wfUp!=null?wfUp:(wfDw!=null?wfDw:upwindAxis);
-  if(wfUp!=null&&wfDw!=null){
-    wf = circBlend(wfUp, Math.max(1,uwPort.length+uwStbd.length)*1.2,
-                   wfDw, Math.max(1,dwPort.length+dwStbd.length)*0.5);
-  }
-  const stableN = uwPort.length+uwStbd.length+dwPort.length+dwStbd.length;
-  const conf = Math.min(0.96, 0.15+Math.min(0.4,stableN/100)+(wfUp!=null?0.2:0)+(wfDw!=null?0.06:0));
-
-  return {
-    wf, upwindAxis, downwindAxis,
-    wfUp, wfDw, n: Object.keys(tracks).length, stableN, confidence: +conf.toFixed(2),
-    fallback: wfUp==null&&wfDw==null,
-    uwPort, uwStbd, dwPort, dwStbd,
-    portMean: weightedCircMean(uwPort), stbdMean: weightedCircMean(uwStbd),
-    dwPortMean: weightedCircMean(dwPort), dwStbdMean: weightedCircMean(dwStbd),
-  };
-}
 
 // ═══════════════════════════════════════════════════════════
 //  GEOMETRY CALCULATIONS
@@ -3280,7 +3220,7 @@ function renderReplayAtTs(chunkData, ts) {
   const WW = wwCenter(), LW = lwCenter();
   if(WW && LW && Object.keys(STATE.tracks).length > 0) {
     const approxGun = ts - 5 * 60 * 1000;
-    STATE.windInferred = inferWind(STATE.tracks, WW.lat, WW.lon, LW.lat, LW.lon, approxGun);
+    STATE.windInferred = inferWind(STATE.tracks, WW.lat, WW.lon, LW.lat, LW.lon, approxGun, null, null);
     updateBlendedWind();
   }
 
