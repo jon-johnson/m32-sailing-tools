@@ -477,13 +477,14 @@ tr:hover td{background:var(--bg3)}
     }
 
     async function saveRaceDataToFirestore(eventId, dayIdx, raceNum, payload) {
-      // payload: { reachMark?, twd?, tws? } — only defined keys are written
+      // payload: { reachMark?, twd?, tws?, summary? } — only defined keys are written
       try {
         const path = raceDocPath(eventId, dayIdx, raceNum);
         const data = { updatedAt: Date.now() };
         if(payload.reachMark != null) data.reachMark = payload.reachMark;
         if(payload.twd       != null) data.twd       = payload.twd;
         if(payload.tws       != null) data.tws       = payload.tws;
+        if(payload.summary   != null) data.summary   = payload.summary;
         await setDoc(doc(db, path), data, { merge: true });
         console.log(`[RaceData] Saved ${path}`, data);
         return true;
@@ -721,6 +722,81 @@ function applyStoredRaceDataToRd(rd) {
       safeLocalSet(POLAR_TWS_OVERRIDE_KEY, store);
     }
   }
+}
+
+// ── RACE SUMMARY: save computed stats so view-mode averages tabs work ──────────
+// Called after renderRacePanel succeeds (admin mode only).
+// Extracts the minimal fields consumed by renderDaySummary / renderEventSummary
+// and saves them as summary field in the Firestore race document.
+function saveRaceSummaryToFirestore(rd) {
+  if(VIEW_MODE) return;
+  const eventId = window._activeEventId;
+  if(!eventId || !window._firestoreRaceData) return;
+  const di = rd.event?._dayIdx ?? rd._dayIdx ?? 0;
+  // Only save if we have the minimum data needed for averages
+  if(!rd.BOATS?.length || !rd.l1Order) return;
+  const summary = {
+    raceNum:          rd.raceNum,
+    dayIdx:           di,
+    BOATS:            rd.BOATS,
+    l1Order:          rd.l1Order,
+    startStats:       rd.startStats || [],
+    GUND:             (rd.GUND || []).map(g => ({ sail: g.sail, sog: g.sog })),
+    ocsFromTelemetry: rd.ocsFromTelemetry ? [...rd.ocsFromTelemetry] : [],
+    savedAt:          Date.now()
+  };
+  window._firestoreRaceData.saveRaceDataToFirestore(eventId, di, rd.raceNum, { summary });
+  console.log(`[Summary] Saved summary for Day${di+1} R${rd.raceNum}`);
+}
+
+// In view mode: build lightweight rd-like stubs from Firestore summaries.
+// These are stored in window._raceSummaryStubs[dayIdx][raceNum] and merged
+// into the races arrays passed to renderDaySummary / renderEventSummary.
+function buildSummaryStubs() {
+  const eventId = window._activeEventId;
+  if(!eventId) return;
+  const allData = window._loadedRaceData?.[eventId] || {};
+  window._raceSummaryStubs = {};
+  for(const [key, doc] of Object.entries(allData)) {
+    const s = doc.summary;
+    if(!s || !s.BOATS?.length) continue;
+    const di  = s.dayIdx ?? 0;
+    const rn  = s.raceNum;
+    if(!window._raceSummaryStubs[di]) window._raceSummaryStubs[di] = {};
+    // Build minimal rd stub — only fields needed by renderDaySummary/renderEventSummary
+    window._raceSummaryStubs[di][rn] = {
+      raceNum:          rn,
+      event:            { _dayIdx: di },
+      _dayIdx:          di,
+      BOATS:            s.BOATS,
+      l1Order:          s.l1Order || [],
+      startStats:       s.startStats || [],
+      GUND:             s.GUND || [],
+      ocsFromTelemetry: new Set(s.ocsFromTelemetry || []),
+      _isStub:          true   // flag so we can distinguish stubs if needed
+    };
+  }
+  const total = Object.values(window._raceSummaryStubs).flatMap(d => Object.keys(d)).length;
+  console.log(`[Summary] Built ${total} stubs from Firestore for averages tabs`);
+}
+
+// Returns races array for a day, merging Firestore stubs for any race not yet
+// loaded from telemetry.  Works for both admin and view mode.
+function mergedRacesForDay(event) {
+  const di    = event._dayIdx ?? 0;
+  const base  = event._races || [];              // full rd objects or null/undefined
+  const stubs = window._raceSummaryStubs?.[di] || {};
+  // Collect all race numbers from both sources
+  const allNums = new Set([
+    ...base.filter(Boolean).map(r => r.raceNum),
+    ...Object.keys(stubs).map(Number)
+  ]);
+  const merged = [];
+  for(const rn of [...allNums].sort((a,b)=>a-b)) {
+    const full = base.find(r => r && r.raceNum === rn);
+    merged.push(full || stubs[rn] || null);
+  }
+  return merged.filter(Boolean);
 }
 
 // Physics constants
@@ -4982,8 +5058,8 @@ function showEventSummary(){
   document.getElementById('dayPanelEvent').classList.add('active');
   const lbl = document.getElementById('exportDayLabel');
   if(lbl) lbl.textContent = 'EVENT';
-  // Gather all loaded races across all days
-  const allRaces = EVENTS.flatMap(ev => (ev._races||[]).filter(Boolean));
+  // Gather all loaded races across all days, merging Firestore stubs for unloaded races
+  const allRaces = EVENTS.flatMap(ev => mergedRacesForDay(ev));
   const panel = document.getElementById('dayPanelEvent');
   renderEventSummary(panel, allRaces);
 }
@@ -5057,7 +5133,7 @@ function buildRaceTabs(event, di, guns){
     })();
     document.querySelectorAll(`#raceContent${di} > div`).forEach(p=>p.style.display='none');
     sp.style.display='block';
-    renderDaySummary(sp, event, event._races);
+    renderDaySummary(sp, event, mergedRacesForDay(event));
   };
   rtRow.appendChild(st);
 
@@ -5140,6 +5216,8 @@ function selectRace(event, di, raceNum, guns, ri){
     try {
       renderRacePanel(panel, rd);
       syncBottomTwsControls();
+      // Save computed summary to Firestore so view-mode averages tabs work
+      try { saveRaceSummaryToFirestore(rd); } catch(e2) { console.warn('[Summary] Save failed', e2); }
     } catch(e){
       panel.innerHTML = `<div class="err">ERROR RENDERING RACE ${raceNum}: ${e.message}<br><pre style="font-size:9px;white-space:pre-wrap">${e.stack}</pre></div>`;
       console.error('renderRacePanel error R'+raceNum, e);
@@ -5282,7 +5360,7 @@ function exportPDF(){
     summaryPanel.className = 'day-summary';
     summaryPanel.style.display = 'none';
     rcContent.appendChild(summaryPanel);
-    renderDaySummary(summaryPanel, event, event._races);
+    renderDaySummary(summaryPanel, event, mergedRacesForDay(event));
   }
   // Move summary to be first child so it prints first
   if(summaryPanel && rcContent) rcContent.prepend(summaryPanel);
@@ -5446,6 +5524,8 @@ async function loadEventConfig() {
       if(!window._loadedRaceData) window._loadedRaceData = {};
       window._loadedRaceData[window._activeEventId] = raceData;
       console.log(`[RaceData] Pre-loaded ${Object.keys(raceData).length} races`);
+      // Build summary stubs so averages tabs work in view mode without loading telemetry
+      try { buildSummaryStubs(); } catch(e2) { console.warn('[Summary] buildSummaryStubs failed', e2); }
     } catch(e) { console.warn('[RaceData] Pre-load failed', e); }
   }
   // 4. Apply view mode — hide all editing controls
