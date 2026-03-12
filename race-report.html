@@ -395,7 +395,7 @@ tr:hover td{background:var(--bg3)}
   <!-- Firebase SDK (m32-sailing-tools project — polar persistence) -->
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-    import { getFirestore, doc, getDoc, setDoc, collection, addDoc, serverTimestamp }
+    import { getFirestore, doc, getDoc, setDoc, collection, addDoc, getDocs, serverTimestamp }
       from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
     const firebaseConfig = {
@@ -447,7 +447,6 @@ tr:hover td{background:var(--bg3)}
         if(newReachPolar && Object.keys(newReachPolar).length)
           historyDoc.reaching = newReachPolar;
 
-        // Save history snapshot first
         await addDoc(collection(db, 'polars', POLAR_DOC, 'history'), historyDoc);
 
         const liveDoc = {
@@ -459,7 +458,6 @@ tr:hover td{background:var(--bg3)}
         if(newReachPolar && Object.keys(newReachPolar).length)
           liveDoc.reaching = newReachPolar;
 
-        // Update the live polar document
         await setDoc(doc(db, 'polars', POLAR_DOC), liveDoc, { merge: true });
 
         window._polarFirestoreVersion = nextVer;
@@ -472,13 +470,51 @@ tr:hover td{background:var(--bg3)}
       }
     }
 
-    // Expose to non-module scripts via window
-    window._firestorePolar = { loadPolarFromFirestore, savePolarToFirestore };
+    // ── RACE DATA: reach mark + wind per race ──────────────────────────────────
+    // Path: raceData/{eventId}/races/{dayIdx}_{raceNum}
+    function raceDocPath(eventId, dayIdx, raceNum) {
+      return `raceData/${eventId}/races/${dayIdx}_${raceNum}`;
+    }
 
-    // Kick off load immediately — resolves before init() reads the polar
+    async function saveRaceDataToFirestore(eventId, dayIdx, raceNum, payload) {
+      // payload: { reachMark?, twd?, tws? } — only defined keys are written
+      try {
+        const path = raceDocPath(eventId, dayIdx, raceNum);
+        const data = { updatedAt: Date.now() };
+        if(payload.reachMark != null) data.reachMark = payload.reachMark;
+        if(payload.twd       != null) data.twd       = payload.twd;
+        if(payload.tws       != null) data.tws       = payload.tws;
+        await setDoc(doc(db, path), data, { merge: true });
+        console.log(`[RaceData] Saved ${path}`, data);
+        return true;
+      } catch(e) {
+        console.warn('[RaceData] Save failed', e);
+        return false;
+      }
+    }
+
+    async function loadAllRaceDataFromFirestore(eventId) {
+      // Returns { "dayIdx_raceNum": { reachMark, twd, tws, updatedAt }, ... }
+      try {
+        const col  = collection(db, `raceData/${eventId}/races`);
+        const snap = await getDocs(col);
+        const result = {};
+        snap.forEach(d => { result[d.id] = d.data(); });
+        console.log(`[RaceData] Loaded ${Object.keys(result).length} races for ${eventId}`);
+        return result;
+      } catch(e) {
+        console.warn('[RaceData] Load failed', e);
+        return {};
+      }
+    }
+
+    // Expose everything to non-module scripts
+    window._firestorePolar    = { loadPolarFromFirestore, savePolarToFirestore };
+    window._firestoreRaceData = { saveRaceDataToFirestore, loadAllRaceDataFromFirestore };
+
+    // ── Kick off polar load immediately ───────────────────────────────────────
     window._polarLoadPromise = loadPolarFromFirestore().then(result => {
       if (result) {
-        // Store in localStorage as active polar so getPolarGrid() picks it up
         try {
           localStorage.setItem('m32_polar_store_v1_active', JSON.stringify({
             approvedAt: result.updatedAt,
@@ -489,7 +525,6 @@ tr:hover td{background:var(--bg3)}
           }));
         } catch(e) { console.warn('[Polar] localStorage write failed', e); }
       }
-      // Update sync badge once DOM is ready
       requestAnimationFrame(updatePolarSyncBadge);
     });
   </script>
@@ -609,6 +644,55 @@ tr:hover td{background:var(--bg3)}
 <script>
 'use strict';
 
+// ── VIEW MODE ─────────────────────────────────────────────────────────────────
+// ?mode=view → read-only: editing controls hidden, data from Firestore only
+const VIEW_MODE = new URLSearchParams(window.location.search).get('mode') === 'view';
+
+// ── RACE DATA FIRESTORE HELPERS (non-module wrappers) ─────────────────────────
+// eventId is taken from the loaded event config (cfg.eventId or slug)
+function getRaceDataKey(rd) {
+  return `${rd.event?._dayIdx ?? rd._dayIdx ?? 0}_${rd.raceNum}`;
+}
+function getStoredRaceData(rd) {
+  // Returns the Firestore-loaded race data object for this race, or {}
+  const eventId = window._activeEventId || '';
+  return (window._loadedRaceData?.[eventId]?.[getRaceDataKey(rd)]) || {};
+}
+async function pushRaceDataToFirestore(rd, payload) {
+  if(VIEW_MODE) return;  // never write in view mode
+  const eventId = window._activeEventId;
+  if(!eventId || !window._firestoreRaceData) return;
+  const di = rd.event?._dayIdx ?? rd._dayIdx ?? 0;
+  await window._firestoreRaceData.saveRaceDataToFirestore(eventId, di, rd.raceNum, payload);
+}
+function applyStoredRaceDataToRd(rd) {
+  // Restores reach mark and wind overrides from Firestore data onto rd
+  const data = getStoredRaceData(rd);
+  if(data.reachMark) {
+    rd.rm = { lat: data.reachMark.lat, lon: data.reachMark.lon,
+              boat_lat: data.reachMark.lat, boat_lon: data.reachMark.lon,
+              ts: rd.gunTs + 50000, t_s: 50, manual: true, fromFirestore: true };
+    console.log(`[RaceData] Restored reach mark for R${rd.raceNum}`);
+  }
+  if(data.twd?.value != null) {
+    // Store as TWD override so getEffectiveTwdOverride picks it up
+    const store = getTwdOverrideStore();
+    const key   = raceOverrideKeyFromRd(rd);
+    if(!store.races[key]) {   // don't overwrite a locally-set value
+      store.races[key] = { twd: data.twd.value, updatedAt: data.twd.updatedAt || Date.now(), source: 'firestore' };
+      safeLocalSet(POLAR_TWD_OVERRIDE_KEY, store);
+    }
+  }
+  if(data.tws?.value != null) {
+    const store = getTwsOverrideStore();
+    const key   = raceOverrideKeyFromRd(rd);
+    if(!store.races[key]) {
+      store.races[key] = { tws: data.tws.value, updatedAt: data.tws.updatedAt || Date.now(), source: 'firestore' };
+      safeLocalSet(POLAR_TWS_OVERRIDE_KEY, store);
+    }
+  }
+}
+
 // Physics constants
 const D2R = Math.PI/180;
 const RE  = 6371000;
@@ -726,6 +810,9 @@ function saveRaceTwsOverride(di, raceNum){
   refreshPolarDataForRace(rd);
   rerenderVisibleRace(rd);
   updatePolarStatusLabel();
+  // Persist to Firestore
+  const twsVal = store.races[raceKey]?.tws ?? null;
+  pushRaceDataToFirestore(rd, { tws: twsVal != null ? { value: twsVal, updatedAt: Date.now() } : null });
 }
 function clearRaceTwsOverride(di, raceNum){
   const event=EVENTS?.[di]; const rd=(event?._races||[]).find(r=>r && r.raceNum===raceNum); if(!rd) return;
@@ -767,6 +854,10 @@ function saveRaceTwdOverride(di, raceNum){
   collectReachObservationsFromRace(rd);
   rerenderVisibleRace(rd);
   updatePolarStatusLabel();
+  // Persist to Firestore
+  const tdKey = raceOverrideKeyFromRd(rd);
+  const twdVal = getTwdOverrideStore().races[tdKey]?.twd ?? null;
+  pushRaceDataToFirestore(rd, { twd: twdVal != null ? { value: twdVal, updatedAt: Date.now() } : null });
 }
 
 function clearRaceTwdOverride(di, raceNum){
@@ -3213,7 +3304,7 @@ function renderRacePanel(panelEl, rd){
       <div class="course-card">
         <div class="sh" style="margin-top:0">COURSE OVERVIEW</div>
         <div class="mc" style="flex-shrink:0">
-          <div class="mh">FULL RACE TRACKS · GATES · REACH MARK · COURSE AXIS &nbsp;<span style="color:var(--orange);font-size:8px">✦ CLICK TO PLACE REACH MARK</span></div>
+          <div class="mh">FULL RACE TRACKS · GATES · REACH MARK · COURSE AXIS &nbsp;<span style="color:var(--orange);font-size:8px">${VIEW_MODE ? '' : '✦ CLICK TO PLACE REACH MARK'}</span></div>
           <canvas id="${cCourseId}"></canvas>
         </div>
       </div>
@@ -4019,8 +4110,10 @@ function drawCourseR(rd){
     canvasEl.title = 'Click to manually place reach mark';
     // Remove old listener if re-rendered
     if(canvasEl._rmClickHandler) canvasEl.removeEventListener('click', canvasEl._rmClickHandler);
-    canvasEl._rmClickHandler = (e) => handleReachMarkClick(e, canvasEl);
-    canvasEl.addEventListener('click', canvasEl._rmClickHandler);
+    if(!VIEW_MODE) {
+      canvasEl._rmClickHandler = (e) => handleReachMarkClick(e, canvasEl);
+      canvasEl.addEventListener('click', canvasEl._rmClickHandler);
+    }
   }
 
   // Legend
@@ -5007,6 +5100,8 @@ function selectRace(event, di, raceNum, guns, ri){
     }
     event._races[ri] = rd;
     try{ refreshDayWind(event); }catch(e){ console.warn('day wind refresh failed', e); }
+    // Restore reach mark + wind from Firestore, then apply TWD override
+    try{ applyStoredRaceDataToRd(rd); }catch(e){ console.warn('RaceData restore failed', e); }
     // Apply any stored TWD override — must happen after inferWind sets rd.WF
     try{ applyTwdOverrideToRd(rd); }catch(e){ console.warn('TWD override apply failed', e); }
     updatePolarStatusLabel();
@@ -5099,6 +5194,8 @@ function handleReachMarkClick(e, canvasEl){
   // Collect reach leg polar observations with new mark position
   try { collectReachObservationsFromRace(rd); } catch(e){ console.warn('[Reach] obs collection failed', e); }
   updatePolarStatusLabel();
+  // Persist reach mark to Firestore
+  pushRaceDataToFirestore(rd, { reachMark: { lat, lon, updatedAt: Date.now() } });
 }
 
 function recomputeL1(rd){
@@ -5292,16 +5389,39 @@ async function loadEventConfig() {
   GATE_SNS                = cfg.markSNs || { WW:[], LW:[], RC_SNS:[], PIN_SN:null };
   document.title = `${REGATTA_SUBTITLE} · Race Report`;
   window.ACTIVE_EVENT_LABEL = EVENTS.map(e => e.label).join(', ');
+  // eventId for Firestore race data — use explicit cfg.eventId, fall back to slug
+  window._activeEventId = cfg.eventId || slug;
 }
 
-// Bootstrap: load event config + Firestore polar, then init
-(async()=>{
-  // 1. Load event JSON (must come first — populates EVENTS, COL, etc.)
+// Bootstrap: load event config + Firestore polar + race data, then init
+(async()=>{\n  // 1. Load event JSON (must come first — populates EVENTS, COL, etc.)
   try { await loadEventConfig(); } catch(e) { return; }
   // 2. Wait for Firestore polar (kicked off in parallel at page load)
   if(window._polarLoadPromise) await window._polarLoadPromise;
   updatePolarSyncBadge();
-  // 3. Run
+  // 3. Load all race data (reach marks + wind overrides) from Firestore
+  if(window._activeEventId && window._firestoreRaceData) {
+    try {
+      const raceData = await window._firestoreRaceData.loadAllRaceDataFromFirestore(window._activeEventId);
+      if(!window._loadedRaceData) window._loadedRaceData = {};
+      window._loadedRaceData[window._activeEventId] = raceData;
+      console.log(`[RaceData] Pre-loaded ${Object.keys(raceData).length} races`);
+    } catch(e) { console.warn('[RaceData] Pre-load failed', e); }
+  }
+  // 4. Apply view mode — hide all editing controls
+  if(VIEW_MODE) {
+    document.querySelectorAll(
+      '#bottomActions .tws-box, #polarSyncBtn, ' +
+      '.rm-hint, [onclick*="handleReachMarkClick"]'
+    ).forEach(el => el.style.display = 'none');
+    // Add a visible VIEW MODE badge
+    const badge = document.createElement('div');
+    badge.textContent = '👁 VIEW MODE';
+    badge.style.cssText = 'font-family:Orbitron,monospace;font-size:9px;font-weight:700;letter-spacing:0.15em;color:#00ccff;padding:4px 10px;border:1px solid rgba(0,204,255,.3);border-radius:3px;';
+    document.getElementById('bottomActions')?.prepend(badge);
+    console.log('[ViewMode] Editing controls hidden');
+  }
+  // 5. Run
   init();
 })();
 </script>
