@@ -424,7 +424,7 @@ tr:hover td{background:var(--bg3)}
         console.log(`[Polar] Loaded from Firestore v${data.version} (${new Date(data.updatedAt).toLocaleDateString()})`);
         window._polarSyncStatus = 'firestore';
         window._polarFirestoreVersion = data.version;
-        return { polar: data.upwind_downwind, version: data.version, updatedAt: data.updatedAt };
+        return { polar: data.upwind_downwind, reachPolar: data.reaching || null, version: data.version, updatedAt: data.updatedAt };
       } catch(e) {
         console.warn('[Polar] Firestore load failed — falling back to base polar', e);
         window._polarSyncStatus = 'offline';
@@ -433,30 +433,38 @@ tr:hover td{background:var(--bg3)}
     }
 
     // ── WRITE polar to Firestore after approval ────────────────────────────────
-    async function savePolarToFirestore(newPolar, summary) {
+    async function savePolarToFirestore(newPolar, summary, newReachPolar) {
       try {
         const currentVer = window._polarFirestoreVersion || 0;
         const nextVer    = currentVer + 1;
 
-        // Save history snapshot first
-        await addDoc(collection(db, 'polars', POLAR_DOC, 'history'), {
-          version:          currentVer,
-          upwind_downwind:  newPolar,
-          summary:          summary,
-          savedAt:          serverTimestamp(),
-        });
+        const historyDoc = {
+          version:         currentVer,
+          upwind_downwind: newPolar,
+          summary:         summary,
+          savedAt:         serverTimestamp(),
+        };
+        if(newReachPolar && Object.keys(newReachPolar).length)
+          historyDoc.reaching = newReachPolar;
 
-        // Update the live polar document
-        await setDoc(doc(db, 'polars', POLAR_DOC), {
+        // Save history snapshot first
+        await addDoc(collection(db, 'polars', POLAR_DOC, 'history'), historyDoc);
+
+        const liveDoc = {
           upwind_downwind:  newPolar,
           version:          nextVer,
           updatedAt:        Date.now(),
           lastEventSummary: summary,
-        }, { merge: true });
+        };
+        if(newReachPolar && Object.keys(newReachPolar).length)
+          liveDoc.reaching = newReachPolar;
+
+        // Update the live polar document
+        await setDoc(doc(db, 'polars', POLAR_DOC), liveDoc, { merge: true });
 
         window._polarFirestoreVersion = nextVer;
         window._polarSyncStatus = 'firestore';
-        console.log(`[Polar] Saved to Firestore as v${nextVer}`);
+        console.log(`[Polar] Saved to Firestore as v${nextVer}${newReachPolar ? ' (incl. reaching)' : ''}`);
         return true;
       } catch(e) {
         console.error('[Polar] Firestore save failed', e);
@@ -477,6 +485,7 @@ tr:hover td{background:var(--bg3)}
             source:     'firestore',
             version:    result.version,
             polar:      result.polar,
+            reachPolar: result.reachPolar || null,
           }));
         } catch(e) { console.warn('[Polar] localStorage write failed', e); }
       }
@@ -573,6 +582,15 @@ tr:hover td{background:var(--bg3)}
       </div>
       <div id="raceTwsStateBottom" class="tws-state"></div>
     </div>
+    <div class="tws-box">
+      <div class="tws-title">RACE TRUE WIND DIRECTION</div>
+      <div class="tws-row">
+        <input id="raceTwdInputBottom" class="tws-input" type="number" min="0" max="360" step="1" placeholder="°">
+        <button class="action-btn" onclick="saveCurrentRaceTwdOverride()">SAVE</button>
+        <button class="action-btn alt" onclick="clearCurrentRaceTwdOverride()">CLEAR</button>
+      </div>
+      <div id="raceTwdStateBottom" class="tws-state"></div>
+    </div>
   </div>
   <button class="export-btn" id="exportBtn" onclick="exportPDF()" style="min-width:210px;
   font-family:Orbitron,monospace;font-size:9px;font-weight:700;letter-spacing:1px;
@@ -624,12 +642,14 @@ const POLAR_OBS_KEY = `${POLAR_STORE_PREFIX}_observations`;
 const POLAR_CANDIDATE_KEY = `${POLAR_STORE_PREFIX}_candidate`;
 const POLAR_ACTIVE_KEY = `${POLAR_STORE_PREFIX}_active`;
 const POLAR_TWS_OVERRIDE_KEY = `${POLAR_STORE_PREFIX}_tws_overrides`;
+const POLAR_TWD_OVERRIDE_KEY = `${POLAR_STORE_PREFIX}_twd_overrides`;
 function safeLocalGet(key){ try{return JSON.parse(localStorage.getItem(key)||'null');}catch(e){return null;} }
 function safeLocalSet(key,val){ try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){ console.warn('localStorage set failed', key, e); } }
 function getActivePolarStore(){ return safeLocalGet(POLAR_ACTIVE_KEY); }
 function getCandidatePolarStore(){ return safeLocalGet(POLAR_CANDIDATE_KEY); }
 function getPolarObsStore(){ return safeLocalGet(POLAR_OBS_KEY) || {className:'M32', version:1, observations:{}}; }
 function getPolarGrid(){ return (getActivePolarStore()?.polar) || M32_POLAR; }
+function getPolarReachGrid(){ return (getActivePolarStore()?.reachPolar) || {}; }
 function getTwsOverrideStore(){ return safeLocalGet(POLAR_TWS_OVERRIDE_KEY) || {days:{}, races:{}}; }
 function dayOverrideKeyFromEvent(event, di){ return `${event?.id||'ev'}_d${di ?? event?._dayIdx ?? 0}`; }
 function raceOverrideKeyFromRd(rd){ return `${rd?.event?.id||'ev'}_d${rd?.event?._dayIdx ?? rd?._dayIdx ?? 0}_r${rd?.raceNum ?? 0}`; }
@@ -729,6 +749,97 @@ function clearRaceTwsOverride(di, raceNum){
   saveRaceTwsOverride(di, raceNum);
 }
 
+// ── TRUE WIND DIRECTION OVERRIDE ─────────────────────────────────────────────
+function getTwdOverrideStore(){ return safeLocalGet(POLAR_TWD_OVERRIDE_KEY) || {races:{}}; }
+
+function getEffectiveTwdOverride(rd){
+  // Returns {twd, active} — twd is compass bearing 0-360, active=true if manually set
+  const store = getTwdOverrideStore();
+  const key   = raceOverrideKeyFromRd(rd);
+  const v     = store.races?.[key]?.twd;
+  if(Number.isFinite(v)) return {twd: +v, active: true};
+  return {twd: rd?.WF ?? null, active: false};
+}
+
+function saveRaceTwdOverride(di, raceNum){
+  const event=EVENTS?.[di]; const rd=(event?._races||[]).find(r=>r && r.raceNum===raceNum); if(!rd) return;
+  const inp = document.getElementById('raceTwdInputBottom');
+  const raw = inp ? inp.value.trim() : '';
+  const store = getTwdOverrideStore();
+  const key   = raceOverrideKeyFromRd(rd);
+  if(raw === ''){
+    delete store.races[key];
+  } else {
+    const v = +raw;
+    if(!Number.isFinite(v) || v < 0 || v > 360){ alert('Enter a valid true wind direction (0–360°)'); return; }
+    store.races[key] = {twd: +(v % 360).toFixed(1), updatedAt: Date.now()};
+  }
+  safeLocalSet(POLAR_TWD_OVERRIDE_KEY, store);
+  // Apply override to rd.WF immediately so all analytics cascade
+  applyTwdOverrideToRd(rd);
+  updateRaceTwdUi(rd);
+  refreshPolarDataForRace(rd);
+  // Also re-collect reach obs for this race with new wind direction
+  collectReachObservationsFromRace(rd);
+  rerenderVisibleRace(rd);
+  updatePolarStatusLabel();
+}
+
+function clearRaceTwdOverride(di, raceNum){
+  const inp = document.getElementById('raceTwdInputBottom'); if(inp) inp.value='';
+  saveRaceTwdOverride(di, raceNum);
+}
+
+function saveCurrentRaceTwdOverride(){
+  const rd = getActiveRaceRd(); if(!rd) return;
+  saveRaceTwdOverride(rd.event?._dayIdx ?? rd._dayIdx ?? 0, rd.raceNum);
+}
+function clearCurrentRaceTwdOverride(){
+  const rd = getActiveRaceRd(); if(!rd) return;
+  clearRaceTwdOverride(rd.event?._dayIdx ?? rd._dayIdx ?? 0, rd.raceNum);
+}
+
+function applyTwdOverrideToRd(rd){
+  if(!rd) return;
+  const {twd, active} = getEffectiveTwdOverride(rd);
+  if(active && twd != null){
+    rd.WF = twd;
+    // Wrap in a pseudo WF_OBJ so downstream wind display shows override
+    rd.WF_OVERRIDE_OBJ = {wf: twd, source: 'manual_twd', confidence: 1.0};
+  } else {
+    // Restore inferred wind
+    rd.WF = rd.WF_BLEND_OBJ?.wf ?? rd.WF_RACE_OBJ?.wf ?? null;
+    rd.WF_OVERRIDE_OBJ = null;
+  }
+}
+
+function updateRaceTwdUi(rd){
+  if(!rd) return;
+  const {twd, active} = getEffectiveTwdOverride(rd);
+  const inp = document.getElementById('raceTwdInputBottom');
+  if(inp && document.activeElement !== inp){
+    inp.value = active && twd != null ? Math.round(twd) : '';
+  }
+  const st = document.getElementById('raceTwdStateBottom');
+  if(st){
+    if(active && twd != null){
+      st.textContent = `Override active: ${Math.round(twd)}° (inferred was ${rd.WF_RACE_OBJ?.wf != null ? Math.round(rd.WF_RACE_OBJ.wf)+'°' : '—'})`;
+    } else {
+      const inf = rd.WF != null ? `Inferred: ${Math.round(rd.WF)}°` : 'No wind direction available';
+      st.textContent = inf;
+    }
+  }
+}
+
+function syncBottomTwdControls(){
+  const rd = getActiveRaceRd();
+  if(!rd){ 
+    const st = document.getElementById('raceTwdStateBottom'); if(st) st.textContent = 'Select race to edit';
+    return;
+  }
+  updateRaceTwdUi(rd);
+}
+
 function getActiveRaceRd(){
   const event=EVENTS?.[currentDay]; if(!event) return null;
   const raceNum=event._activeRaceNum;
@@ -742,10 +853,12 @@ function clearCurrentRaceTwsOverride(){ const rd=getActiveRaceRd(); if(!rd){ ale
 function syncBottomTwsControls(){
   updateDayTwsUi(currentDay);
   const rd=getActiveRaceRd();
-  if(rd) updateRaceTwsUi(rd);
+  if(rd){ updateRaceTwsUi(rd); updateRaceTwdUi(rd); }
   else {
     const rs=document.getElementById('raceTwsStateBottom'); if(rs) rs.textContent='Select race to edit override';
     const ri=document.getElementById('raceTwsInputBottom'); if(ri && document.activeElement!==ri) ri.value='';
+    const rds=document.getElementById('raceTwdStateBottom'); if(rds) rds.textContent='Select race to edit';
+    const rdi=document.getElementById('raceTwdInputBottom'); if(rdi && document.activeElement!==rdi) rdi.value='';
   }
 }
 
@@ -817,9 +930,96 @@ function collectPolarObservationsFromRace(rd){
   store.updatedAt=Date.now();
   safeLocalSet(POLAR_OBS_KEY, store);
 }
+
+// ── REACH LEG POLAR OBSERVATION COLLECTOR ────────────────────────────────────
+// Collects avg TWA + BSP from the first 3-4 boats to reach the reach mark.
+// Stored as separate reach: [] array in the polar obs store.
+// Requires: rd.rm (reach mark placed), rd.WF (wind direction), rd.tracks.
+function collectReachObservationsFromRace(rd){
+  if(!rd || !rd.tracks || !rd.rm || rd.WF == null) return;
+  const twsInfo = getEffectiveTwsInfo(rd);
+  if(!Number.isFinite(twsInfo.tws)) return;
+  const tws = +twsInfo.tws;
+  const markLat = rd.rm.lat, markLon = rd.rm.lon;
+  const gunTs   = rd.gunTs;
+  const PROX_M  = 40;   // metres — boat considered at mark within this radius
+  const N_CLEAN = 4;    // first N boats = clean air
+
+  // Compute each boat's mark arrival time (first approach within PROX_M)
+  const arrivals = [];
+  for(const sail of (rd.BOATS || [])){
+    const t = rd.tracks[sail]; if(!t || t.length < 5) continue;
+    const seg = t.filter(p => p.ts >= gunTs + 10000 && p.ts <= gunTs + 300000);
+    if(!seg.length) continue;
+    let prevD = Infinity, markTime = null;
+    for(const p of seg){
+      const d = hav(p.lat, p.lon, markLat, markLon);
+      if(d < PROX_M && prevD >= PROX_M){ markTime = p.ts; break; }
+      // Also accept local minimum approach
+      if(d < PROX_M){ markTime = p.ts; break; }
+      prevD = d;
+    }
+    if(markTime) arrivals.push({sail, markTime});
+  }
+  if(arrivals.length < 2) return;  // not enough data
+  arrivals.sort((a,b) => a.markTime - b.markTime);
+  const cleanBoats = arrivals.slice(0, N_CLEAN);
+
+  const store = getPolarObsStore();
+  if(!store.reachObservations) store.reachObservations = {};
+  const robs = store.reachObservations;
+
+  for(const {sail, markTime} of cleanBoats){
+    const t = rd.tracks[sail]; if(!t) continue;
+    const seg = t.filter(p => p.ts >= gunTs + 10000 && p.ts <= markTime);
+    if(seg.length < 5) continue;
+
+    // Compute average BSP and TWA over the leg
+    let sumBsp = 0, sinSum = 0, cosSum = 0, n = 0;
+    for(let i = 1; i < seg.length - 1; i++){
+      const p = seg[i], p0 = seg[i-1], p1 = seg[i+1];
+      const bsp = p.sog * 0.539957;
+      if(bsp < 3 || bsp > 35) continue;
+      const cog = brg(p0.lat, p0.lon, p1.lat, p1.lon);
+      const relAngle = ((cog - rd.WF + 180 + 360) % 360) - 180;
+      const twaRad = Math.abs(relAngle) * D2R;
+      sinSum += Math.sin(twaRad); cosSum += Math.cos(twaRad);
+      sumBsp += bsp; n++;
+    }
+    if(n < 5) continue;
+
+    const avgBsp = +(sumBsp / n).toFixed(2);
+    const avgTwa = +(Math.atan2(sinSum/n, cosSum/n) / D2R);
+    if(avgTwa < M32_POLAR_TWA_MIN || avgTwa > M32_POLAR_TWA_MAX) continue;
+
+    const twsBin = nearestGrid(tws, M32_POLAR_TWS);
+    const twaBin = Math.round(avgTwa);
+    const id = `reach_${rd.event?.id||'ev'}_${rd.event?._dayIdx||0}_${rd.raceNum}_${sail}`;
+
+    robs[id] = {
+      id, type:'reach', className:'M32',
+      eventId: rd.event?.id || '', day: rd.event?.label || '',
+      dayIdx: rd.event?._dayIdx || 0, raceNum: rd.raceNum, sail,
+      twa: twaBin, tws: twsBin, bsp: avgBsp,
+      wf: +rd.WF.toFixed(1), twsSource: twsInfo.source,
+      markTime, legsecs: Math.round((markTime - gunTs)/1000),
+      updatedAt: Date.now()
+    };
+  }
+  store.updatedAt = Date.now();
+  safeLocalSet(POLAR_OBS_KEY, store);
+  console.log(`[Reach] Collected ${cleanBoats.length} boat reach obs for R${rd.raceNum}`);
+}
+
 function buildPolarCandidateFromStore(){
-  const store=getPolarObsStore(); const obs=Object.values(store.observations||{});
-  const active=getPolarGrid(); const candidate=clonePolar(active); const changes=[];
+  const store   = getPolarObsStore();
+  const obs     = Object.values(store.observations||{});
+  const robs    = Object.values(store.reachObservations||{});
+  const active  = getPolarGrid();
+  const candidate  = clonePolar(active);
+  const changes    = [];
+
+  // ── Upwind / downwind polar ──────────────────────────────────────
   const byBin={};
   for(const o of obs){
     if(o.conf<0.45) continue;
@@ -837,10 +1037,54 @@ function buildPolarCandidateFromStore(){
     const delta=+(newV-oldV).toFixed(2);
     if(Math.abs(delta) < 0.08) continue;
     candidate[String(tws)][String(twa)] = newV;
-    changes.push({tws:+tws,twa:+twa,old:oldV,new:newV,delta,samples:arr.length});
+    changes.push({tws:+tws, twa:+twa, old:oldV, new:newV, delta, samples:arr.length, leg:'upwind_downwind'});
   }
   changes.sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta));
-  const cand={className:'M32', createdAt:Date.now(), source:'proposal', polar:candidate, summary:{observations:obs.length, changedBins:changes.length, topChanges:changes.slice(0,20)}, changes};
+
+  // ── Reaching polar ───────────────────────────────────────────────
+  // Build from reach observations; separate grid, lower min samples (3)
+  const activeReach = getPolarReachGrid();  // base reaching polar
+  const reachCandidate = clonePolar(activeReach);
+  const reachChanges   = [];
+  const byReachBin = {};
+  for(const o of robs){
+    const key = `${o.tws}_${o.twa}`;
+    (byReachBin[key]||(byReachBin[key]=[])).push(o);
+  }
+  for(const [key, arr] of Object.entries(byReachBin)){
+    if(arr.length < 3) continue;  // lower threshold for reach (fewer boats sampled)
+    const [tws,twa] = key.split('_');
+    const oldV = +(activeReach[String(tws)]?.[String(twa)]||0);
+    const vals  = arr.map(o=>o.bsp);
+    // Use median for reach (fleet of 3-4 boats, no need for 82nd percentile)
+    const sorted = [...vals].sort((a,b)=>a-b);
+    const med = sorted[Math.floor(sorted.length/2)];
+    const refV = oldV || med;  // bootstrap if no existing value
+    const capped = Math.max(refV*0.93, Math.min(refV*1.12, med));
+    const newV = oldV ? +(oldV*0.7 + capped*0.3).toFixed(2) : +med.toFixed(2);
+    const delta = +(newV - (oldV||0)).toFixed(2);
+    if(Math.abs(delta) < 0.05 && oldV) continue;
+    if(!reachCandidate[String(tws)]) reachCandidate[String(tws)] = {};
+    reachCandidate[String(tws)][String(twa)] = newV;
+    reachChanges.push({tws:+tws, twa:+twa, old:oldV||0, new:newV, delta, samples:arr.length, leg:'reaching'});
+  }
+  reachChanges.sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta));
+
+  const cand = {
+    className: 'M32', createdAt: Date.now(), source: 'proposal',
+    polar: candidate,
+    reachPolar: reachCandidate,
+    summary: {
+      observations:      obs.length,
+      reachObservations: robs.length,
+      changedBins:       changes.length,
+      reachChangedBins:  reachChanges.length,
+      topChanges:        changes.slice(0,20),
+      topReachChanges:   reachChanges.slice(0,10),
+    },
+    changes,
+    reachChanges,
+  };
   safeLocalSet(POLAR_CANDIDATE_KEY, cand);
   updatePolarStatusLabel();
   return cand;
@@ -852,15 +1096,22 @@ function showPolarProposal(){
     .slice(0,8)
     .map(c=>`${c.tws}kt/${c.twa}° ${c.old.toFixed(2)}→${c.new.toFixed(2)} (${c.delta>0?'+':''}${c.delta.toFixed(2)}) [n=${c.samples}]`)
     .join(String.fromCharCode(10));
-  const msg=`M32 polar proposal built from ${cand.summary.observations} stored observations with manually confirmed TWS.\nChanged bins: ${cand.summary.changedBins}.\n\nTop changes:\n${top || 'No material changes proposed.'}\n\nApprove this proposal as the active polar?`;
-  if(cand.summary.changedBins===0){
-    alert(`M32 polar proposal built from ${cand.summary.observations} stored observations with manually confirmed TWS.\nChanged bins: 0.\n\nNo material changes proposed.`);
+  const reachTop=(cand.summary.topReachChanges||[])
+    .slice(0,4)
+    .map(c=>`${c.tws}kt/${c.twa}° ${c.old.toFixed(2)}→${c.new.toFixed(2)} [n=${c.samples}]`)
+    .join(String.fromCharCode(10));
+  const reachLine = cand.summary.reachObservations > 0
+    ? `\n\nReach obs: ${cand.summary.reachObservations} · Changed bins: ${cand.summary.reachChangedBins}${reachTop ? '\n'+reachTop : ''}`
+    : '';
+  const msg=`M32 polar proposal built from ${cand.summary.observations} upwind/downwind observations.\nChanged bins: ${cand.summary.changedBins}.${reachLine}\n\nTop upwind/downwind changes:\n${top || 'No material changes proposed.'}\n\nApprove this proposal as the active polar?`;
+  if(cand.summary.changedBins===0 && cand.summary.reachChangedBins===0){
+    alert(`M32 polar proposal: ${cand.summary.observations} obs, ${cand.summary.reachObservations} reach obs.\nNo material changes proposed.`);
     return;
   }
   if(confirm(msg)){
-    safeLocalSet(POLAR_ACTIVE_KEY, {approvedAt:Date.now(), source:'approved', polar:cand.polar, summary:cand.summary});
+    safeLocalSet(POLAR_ACTIVE_KEY, {approvedAt:Date.now(), source:'approved', polar:cand.polar, reachPolar:cand.reachPolar, summary:cand.summary});
     updatePolarStatusLabel();
-    showToast(`Polar updated · ${cand.summary.changedBins} bins approved`);
+    showToast(`Polar updated · ${cand.summary.changedBins} bins · ${cand.summary.reachChangedBins} reach bins`);
     // Push to Firestore automatically after approval
     pushPolarToFirestore(cand);
     try{ location.reload(); }catch(e){}
@@ -872,15 +1123,18 @@ async function pushPolarToFirestore(candOverride) {
   const syncLabel = document.getElementById('polarSyncLabel');
   if(syncLabel) syncLabel.textContent = 'SAVING…';
 
-  const cand    = candOverride || getCandidatePolarStore() || {};
-  const active  = getActivePolarStore();
-  const polar   = active?.polar || getPolarGrid();
+  const cand       = candOverride || getCandidatePolarStore() || {};
+  const active     = getActivePolarStore();
+  const polar      = active?.polar || getPolarGrid();
+  const reachPolar = active?.reachPolar || cand.reachPolar || getPolarReachGrid();
   const summary = {
-    changedBins:  cand.summary?.changedBins  || 0,
-    observations: cand.summary?.observations || 0,
-    topChanges:   (cand.summary?.topChanges  || []).slice(0, 10),
-    approvedAt:   Date.now(),
-    event:        window.ACTIVE_EVENT_LABEL || 'unknown',
+    changedBins:      cand.summary?.changedBins      || 0,
+    reachChangedBins: cand.summary?.reachChangedBins || 0,
+    observations:     cand.summary?.observations     || 0,
+    reachObservations:cand.summary?.reachObservations|| 0,
+    topChanges:       (cand.summary?.topChanges      || []).slice(0, 10),
+    approvedAt:       Date.now(),
+    event:            window.ACTIVE_EVENT_LABEL || 'unknown',
   };
 
   if(!window._firestorePolar?.savePolarToFirestore) {
@@ -889,7 +1143,7 @@ async function pushPolarToFirestore(candOverride) {
     return;
   }
 
-  const ok = await window._firestorePolar.savePolarToFirestore(polar, summary);
+  const ok = await window._firestorePolar.savePolarToFirestore(polar, summary, reachPolar);
   if(ok) {
     showToast('Polar synced to Firestore ☁');
     if(syncLabel) syncLabel.textContent = `v${window._polarFirestoreVersion}`;
@@ -4741,7 +4995,7 @@ function selectRace(event, di, raceNum, guns, ri){
     document.querySelectorAll(`#raceContent${di} > div`).forEach(p=>p.style.display='none');
     existing.style.display='block';
     const rd=(event._races||[]).find(r=>r && r.raceNum===raceNum && (r._dayIdx===di || event._dayIdx===di));
-    if(rd){ requestAnimationFrame(()=>{ try{ const saved=saveGlobals(); setGlobals(rd); drawWindR(rd); drawCourseR(rd); if(rd.GUND?.length && rd.RC && rd.PIN) drawGunR(rd); if(rd.T50?.length && rd.RC && rd.PIN) drawT50R(rd); if(rd.RC && rd.PIN) initStartReplayR(rd); restoreGlobals(saved);}catch(e){ console.warn('revisit redraw failed', raceNum, e); } }); updateRaceTwsUi(rd); }
+    if(rd){ requestAnimationFrame(()=>{ try{ const saved=saveGlobals(); setGlobals(rd); drawWindR(rd); drawCourseR(rd); if(rd.GUND?.length && rd.RC && rd.PIN) drawGunR(rd); if(rd.T50?.length && rd.RC && rd.PIN) drawT50R(rd); if(rd.RC && rd.PIN) initStartReplayR(rd); restoreGlobals(saved);}catch(e){ console.warn('revisit redraw failed', raceNum, e); } }); updateRaceTwsUi(rd); updateRaceTwdUi(rd); }
     syncBottomTwsControls();
     return;
   }
@@ -4769,6 +5023,8 @@ function selectRace(event, di, raceNum, guns, ri){
     }
     event._races[ri] = rd;
     try{ refreshDayWind(event); }catch(e){ console.warn('day wind refresh failed', e); }
+    // Apply any stored TWD override — must happen after inferWind sets rd.WF
+    try{ applyTwdOverrideToRd(rd); }catch(e){ console.warn('TWD override apply failed', e); }
     updatePolarStatusLabel();
     if(tabEl) tabEl.classList.add('loaded');
     panel.innerHTML = '';
@@ -4856,6 +5112,9 @@ function handleReachMarkClick(e, canvasEl){
   // Show confirmation toast
   const rlDistShow = rd.PIN ? Math.round(hav(rd.PIN.lat, rd.PIN.lon, lat, lon)) : '?';
   showToast(`Reach mark placed · leg ${rlDistShow}m from pin`);
+  // Collect reach leg polar observations with new mark position
+  try { collectReachObservationsFromRace(rd); } catch(e){ console.warn('[Reach] obs collection failed', e); }
+  updatePolarStatusLabel();
 }
 
 function recomputeL1(rd){
