@@ -1,1 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M32 Sailing Tools</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+  :root {
+    --navy:   #060e1f;
+    --navy2:  #0a1628;
+    --navy3:  #0d1e35;
+    --teal:   #00ccff;
+    --teal2:  #00a8d4;
+    --green:  #00ff99;
+    --purple: #a78bfa;
+    --orange: #ff8c00;
+    --white:  #e8f4f8;
+    --text2:  #7ab8cc;
+    --text3:  #4a7a8a;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--navy);
+    color: var(--white);
+    font-family: 'Share Tech Mono', monospace;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 32px 16px;
+    gap: 48px;
+  }
+
+  /* ── Header ── */
+  .header {
+    text-align: center;
+  }
+
+  .header-eyebrow {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    color: var(--text3);
+    margin-bottom: 10px;
+  }
+
+  .header-title {
+    font-family: 'Orbitron', monospace;
+    font-size: clamp(22px, 5vw, 38px);
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    color: var(--white);
+    line-height: 1.1;
+  }
+
+  .header-title span {
+    color: var(--teal);
+  }
+
+  .header-sub {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text2);
+    letter-spacing: 0.1em;
+  }
+
+  /* ── Tool cards ── */
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    max-width: 480px;
+  }
+
+  .card {
+    display: block;
+    text-decoration: none;
+    background: var(--navy2);
+    border: 1px solid rgba(0,204,255,.18);
+    border-radius: 6px;
+    padding: 24px 28px;
+    transition: border-color .15s, background .15s, transform .1s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(0,204,255,.04) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .card:hover {
+    border-color: rgba(0,204,255,.5);
+    background: var(--navy3);
+    transform: translateY(-1px);
+  }
+
+  .card-tag {
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    color: var(--text3);
+    margin-bottom: 8px;
+  }
+
+  .card-title {
+    font-family: 'Orbitron', monospace;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--white);
+    margin-bottom: 10px;
+  }
+
+  .card-desc {
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--text2);
+  }
+
+  .card-arrow {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    font-size: 18px;
+    color: var(--teal);
+    opacity: 0.5;
+    transition: opacity .15s, transform .15s;
+  }
+
+  .card:hover .card-arrow {
+    opacity: 1;
+    transform: translateX(3px);
+  }
+
+  /* accent colours per card */
+  .card.race  { border-color: rgba(0,204,255,.18); }
+  .card.race:hover { border-color: rgba(0,204,255,.5); }
+  .card.race .card-title { color: var(--teal); }
+  .card.race .card-arrow { color: var(--teal); }
+
+  .card.tactical { border-color: rgba(0,255,153,.12); }
+  .card.tactical:hover { border-color: rgba(0,255,153,.4); }
+  .card.tactical .card-title { color: var(--green); }
+  .card.tactical .card-arrow { color: var(--green); }
+
+  /* ── Footer ── */
+  .footer {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text3);
+    text-align: center;
+  }
+
+  /* ── Decorative rule ── */
+  .rule {
+    width: 100%;
+    max-width: 480px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(0,204,255,.25), transparent);
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-eyebrow">M32 CATAMARAN · RACE ANALYTICS</div>
+  <div class="header-title">M32 <span>SAILING</span> TOOLS</div>
+  <div class="header-sub">POWERED BY VAKAROS RACESENSE TELEMETRY</div>
+</header>
+
+<div class="rule"></div>
+
+<nav class="cards">
+
+  <a class="card race" href="race-report.html?event=worlds-2025">
+    <div class="card-tag">POST-RACE ANALYSIS</div>
+    <div class="card-title">RACE REPORT</div>
+    <div class="card-desc">
+      Full regatta analytics — start performance, reach order, VMG, wind inference,
+      fleet scoring, and live polar calibration via Firestore.
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+  <a class="card tactical" href="m32_tactical_17.html">
+    <div class="card-tag">LIVE COACHING</div>
+    <div class="card-title">TACTICAL DISPLAY</div>
+    <div class="card-desc">
+      Real-time course geometry for coaches and sailors — laylines, polar targets,
+      reach mark positioning, and live telemetry during racing.
+    </div>
+    <div class="card-arrow">→</div>
+  </a>
+
+</nav>
+
+<div class="rule"></div>
+
+<footer class="footer">
+  M32 NORTH AMERICAN CIRCUIT · TOOLS BY JON JOHNSON
+</footer>
+
+</body>
+</html>
