@@ -4169,6 +4169,26 @@ function renderStartR(rd){
     return aEx - bEx;
   });
   const maxSpd = Math.max(...ranked.filter(s=>!s.startExcluded).map(s=>s.sogGun||0), 1);
+  // Pre-compute per-metric rankings (non-excluded boats only)
+  function metricRankMap(arr, higherIsBetter) {
+    const withVal = arr.filter(s => !s.startExcluded && s._mval != null)
+                      .sort((a,b) => higherIsBetter ? b._mval - a._mval : a._mval - b._mval);
+    const m = new Map();
+    withVal.forEach((s, i) => m.set(s.sail, i + 1));
+    return m;
+  }
+  const rnkDtl    = metricRankMap(ranked.map(s=>({...s, _mval: s.distGun!=null ? Math.abs(s.distGun) : null})), false);
+  const rnkDtl15  = metricRankMap(ranked.map(s=>({...s, _mval: s.dtlT15!=null ? Math.abs(s.dtlT15) : null})), false);
+  const rnkSpd    = metricRankMap(ranked.map(s=>({...s, _mval: s.sogGun})), true);
+  const rnkMinSpd = metricRankMap(ranked.map(s=>({...s, _mval: s.minSpd30})), true);
+  const rnkCross  = metricRankMap(ranked.map(s=>({...s, _mval: s.crossingTime})), false);
+  const rnkT95    = metricRankMap(ranked.map(s=>({...s, _mval: s.accel})), false);
+  const sBadge = (rnkMap, sail) => {
+    const r = rnkMap.get(sail);
+    if(r == null) return '';
+    const col = r===1?'var(--green)':r===2?'#c0c0c0':r===3?'#cd7f32':'var(--muted2)';
+    return `<span style="font-size:8px;font-family:Share Tech Mono,monospace;color:${col};margin-left:3px;vertical-align:super">#${r}</span>`;
+  };
   ranked.forEach((s, i) => {
     const isOCS = rd.ocsFromTelemetry ? rd.ocsFromTelemetry.has(s.sail) : false;
     const isExcluded = !!s.startExcluded;
@@ -4176,7 +4196,6 @@ function renderStartR(rd){
     const c = isExcluded ? 'var(--muted2)' : baseColor;
     const rk = i===0?'g':i===1?'s':i===2?'b':'';
     const spdBar = ((s.sogGun||0)/maxSpd*100).toFixed(1);
-    const minspdBar = ((s.minSpd30||0)/maxSpd*100).toFixed(1);
     const linePctBar = Math.max(0, Math.min(100, s.linePct ?? 0)).toFixed(1);
     const dtlVal = s.distGun;
     const dtlT15Val = s.dtlT15;
@@ -4191,9 +4210,9 @@ function renderStartR(rd){
                    : dtlT15Val >= 0           ? 'var(--yellow)'
                    :                            'var(--red)';
     const minspdCol = isExcluded || s.minSpd30 == null ? 'var(--muted2)'
-                    : s.minSpd30 >= 8 ? 'var(--green)'
-                    : s.minSpd30 >= 5 ? 'var(--yellow)'
-                    :                   'var(--red)';
+                    : s.minSpd30 >= 3   ? 'var(--green)'
+                    : s.minSpd30 >= 1.5 ? 'var(--orange)'
+                    :                     'var(--red)';
     const tr = document.createElement('tr');
     tr.dataset.rank   = String(i);
     tr.dataset.dtl    = String(s.distGun ?? 9999);
@@ -4219,22 +4238,19 @@ function renderStartR(rd){
         ${isOCS && !isExcluded ? '<span style="font-size:8px;font-weight:700;color:#ff3355;font-family:Orbitron,monospace;background:rgba(255,51,85,.2);padding:1px 4px;border-radius:2px;border:1px solid #ff335555">OCS</span>' : ''}
         ${isExcluded ? '<span style="font-size:8px;color:var(--muted2);font-family:Orbitron,monospace">DNP</span>' : ''}
       </div></td>
-      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;color:${signedCol}">${!isExcluded && dtlVal!=null?(dtlVal>=0?'+':'')+dtlVal.toFixed(1)+'m':'—'}</span></div></td>
-      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;color:${dtl15Col}">${!isExcluded && dtlT15Val!=null?(dtlT15Val>=0?'+':'')+dtlT15Val.toFixed(1)+'m':'—'}</span></div></td>
+      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;color:${signedCol}">${!isExcluded && dtlVal!=null?(dtlVal>=0?'+':'')+dtlVal.toFixed(1)+'m':'—'}</span>${!isExcluded?sBadge(rnkDtl,s.sail):''}</div></td>
+      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;color:${dtl15Col}">${!isExcluded && dtlT15Val!=null?(dtlT15Val>=0?'+':'')+dtlT15Val.toFixed(1)+'m':'—'}</span>${!isExcluded?sBadge(rnkDtl15,s.sail):''}</div></td>
       <td><div class="td"><div class="br">
         <div class="bb"><div class="bf" style="width:${spdBar}%;background:${c}"></div></div>
-        <div class="bv" style="color:${c}">${!isExcluded && s.sogGun!=null?s.sogGun.toFixed(1)+'kts':'—'}</div>
+        <div class="bv" style="color:${c}">${!isExcluded && s.sogGun!=null?s.sogGun.toFixed(1)+'kts':'—'}${!isExcluded?sBadge(rnkSpd,s.sail):''}</div>
       </div></div></td>
-      <td><div class="td"><div class="br">
-        <div class="bb"><div class="bf" style="width:${minspdBar}%;background:${minspdCol}44"></div></div>
-        <div class="bv" style="color:${minspdCol}">${!isExcluded && s.minSpd30!=null?s.minSpd30.toFixed(1)+'kts':'—'}</div>
-      </div></div></td>
-      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:11px;color:${c}">${!isExcluded && s.crossingTime!=null?'+'+s.crossingTime.toFixed(1)+'s':'—'}</span></div></td>
+      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:11px;color:${minspdCol}">${!isExcluded && s.minSpd30!=null?s.minSpd30.toFixed(1)+'kts':'—'}</span>${!isExcluded?sBadge(rnkMinSpd,s.sail):''}</div></td>
+      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:11px;color:${c}">${!isExcluded && s.crossingTime!=null?'+'+s.crossingTime.toFixed(1)+'s':'—'}</span>${!isExcluded?sBadge(rnkCross,s.sail):''}</div></td>
       <td><div class="td"><div class="br">
         <div class="bb"><div class="bf" style="width:${linePctBar}%;background:${c}"></div></div>
         <div class="bv" style="color:${c}">${!isExcluded && s.linePct!=null?s.linePct.toFixed(0)+'%':'—'}</div>
       </div></div></td>
-      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:11px;color:${t95Col}">${!isExcluded && s.accel!=null?s.accel.toFixed(1)+'s':'—'}</span></div></td>
+      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:11px;color:${t95Col}">${!isExcluded && s.accel!=null?s.accel.toFixed(1)+'s':'—'}</span>${!isExcluded?sBadge(rnkT95,s.sail):''}</div></td>
     `;
     tb.appendChild(tr);
   });
@@ -4354,7 +4370,7 @@ function renderEventSummary(panelEl, allRaces){
   const N = allRaces.length;
 
   const boatData = {};
-  allBoats.forEach(b=>{ boatData[b]={ reachPos:[], finPos:[], delta:[], distGun:[], sogGun:[], t95:[], startPct:[], ocsVakaros:[], raceDay:[] }; });
+  allBoats.forEach(b=>{ boatData[b]={ reachPos:[], finPos:[], delta:[], distGun:[], sogGun:[], t95:[], dtlT15:[], minSpd30:[], heel:[], startPct:[], ocsVakaros:[], raceDay:[] }; });
   const regionStats = { LOW:[], MID:[], HIGH:[] };
 
   for(const rd of allRaces){
@@ -4374,6 +4390,10 @@ function renderEventSummary(panelEl, allRaces){
       const gd=rd.GUND?.find(d=>d.sail===b);
       boatData[b].sogGun.push(!isExcl && !isOcsB && gd ? gd.sog : null);
       boatData[b].t95.push(!isExcl && !isOcsB && ss?.accel != null ? ss.accel : null);
+      boatData[b].dtlT15.push(!isExcl && ss?.dtlT15 != null ? ss.dtlT15 : null);
+      boatData[b].minSpd30.push(!isExcl && ss?.minSpd30 != null ? ss.minSpd30 : null);
+      const l1s = rd.l1stats?.find(s=>s.sail===b);
+      boatData[b].heel.push(l1s?.heel != null ? l1s.heel : null);
       const sp = normStartPct(ss?.startLinePct ?? ss?.linePct);
       boatData[b].startPct.push(sp);
       const reachPos = rp>=0?rp+1:null;
@@ -4393,6 +4413,8 @@ function renderEventSummary(panelEl, allRaces){
       avgReach: avg(d.reachPos), avgFin: avg(d.finPos),
       avgDelta: avg(d.delta), avgDist: avg(d.distGun),
       avgSog: avg(d.sogGun), avgT95: avg(d.t95),
+      avgDtlT15: avg(d.dtlT15), avgMinSpd: avg(d.minSpd30),
+      avgHeel: avg(d.heel),
       avgStartPct: avg(d.startPct),
       ocsCount: sum(d.ocsVakaros.map(v=>v?1:0)),
       nRaces, totalPts: sum(d.finPos.filter(v=>v!=null))
@@ -4444,6 +4466,9 @@ function renderEventSummary(panelEl, allRaces){
       {key:'avgDist', label:'AVG DTL'},
       {key:'avgSog', label:'AVG SPD@GUN'},
       {key:'avgT95', label:'AVG T→95%'},
+      {key:'avgDtlT15', label:'AVG DTL@T-15'},
+      {key:'avgMinSpd', label:'AVG MIN SPD'},
+      {key:'avgHeel',   label:'AVG HEEL'},
       {key:'avgStartPct', label:'START %'},
       {key:'ocsCount', label:'OCS'},
     ];
@@ -4452,7 +4477,26 @@ function renderEventSummary(panelEl, allRaces){
       return `<th class="${cls}" data-sort="${c.key}" style="text-align:${c.key==='boat'?'left':'center'};padding:4px 8px">${c.label}</th>`;
     }).join('');
 
-    const rows = boats.map((b,i)=>{
+    // Metric rank helper for averages table
+  function avgRnkMap(boats, aggr, key, higherIsBetter) {
+    const withVal = boats.filter(b => aggr[b][key] != null)
+                         .sort((a,b) => higherIsBetter ? aggr[b][key]-aggr[a][key] : aggr[a][key]-aggr[b][key]);
+    const m = new Map();
+    withVal.forEach((b, i) => m.set(b, i + 1));
+    return m;
+  }
+  function aRnkBadge(rnkMap, boat) {
+    const r = rnkMap.get(boat);
+    if(r == null) return '';
+    const col = r===1?'var(--green)':r===2?'#c0c0c0':r===3?'#cd7f32':'var(--muted2)';
+    return `<span style="font-size:8px;font-family:Share Tech Mono,monospace;color:${col};margin-left:3px;vertical-align:super">#${r}</span>`;
+  }
+  const rnkAvgDist   = avgRnkMap(boats, aggr, 'avgDist',   false);
+  const rnkAvgSog    = avgRnkMap(boats, aggr, 'avgSog',    true);
+  const rnkAvgT95    = avgRnkMap(boats, aggr, 'avgT95',    false);
+  const rnkAvgDtl15  = avgRnkMap(boats, aggr, 'avgDtlT15', false);
+  const rnkAvgMinSpd = avgRnkMap(boats, aggr, 'avgMinSpd', true);
+  const rows = boats.map((b,i)=>{
       const ag=aggr[b], c=COL[b]||'#888', rank=reachRankMap[b];
       return `<tr style="border-bottom:1px solid rgba(255,255,255,.04)${i%2?' ':';background:rgba(255,255,255,.02)'}">
         <td style="padding:5px 8px">
@@ -4465,9 +4509,12 @@ function renderEventSummary(panelEl, allRaces){
         <td style="text-align:center">${finCell(ag.avgFin)}</td>
         <td style="text-align:center"><span class="ds-rank-wrap"><span style="font-family:Orbitron,monospace;color:${c}">${fmtN(ag.avgReach)}</span>${rankBadge(rank)}</span></td>
         <td style="text-align:center">${deltaCell(ag.avgDelta)}</td>
-        <td style="text-align:center;color:var(--muted);font-family:Share Tech Mono,monospace">${ag.avgDist!=null?ag.avgDist.toFixed(1)+'m':'—'}</td>
-        <td style="text-align:center;color:var(--muted);font-family:Share Tech Mono,monospace">${ag.avgSog!=null?ag.avgSog.toFixed(1)+'kts':'—'}</td>
-        <td style="text-align:center;color:var(--muted);font-family:Share Tech Mono,monospace">${ag.avgT95!=null?ag.avgT95.toFixed(1)+'s':'—'}</td>
+        <td style="text-align:center;font-family:Share Tech Mono,monospace;color:var(--muted)">${ag.avgDist!=null?ag.avgDist.toFixed(1)+'m':'—'}${aRnkBadge(rnkAvgDist,b)}</td>
+        <td style="text-align:center;font-family:Share Tech Mono,monospace;color:var(--muted)">${ag.avgSog!=null?ag.avgSog.toFixed(1)+'kts':'—'}${aRnkBadge(rnkAvgSog,b)}</td>
+        <td style="text-align:center;font-family:Share Tech Mono,monospace;color:var(--muted)">${ag.avgT95!=null?ag.avgT95.toFixed(1)+'s':'—'}${aRnkBadge(rnkAvgT95,b)}</td>
+        <td style="text-align:center;font-family:Share Tech Mono,monospace;color:${ag.avgDtlT15!=null?(ag.avgDtlT15>=5?'var(--green)':ag.avgDtlT15>=0?'var(--yellow)':'var(--red)'):'var(--muted)'}">${ag.avgDtlT15!=null?(ag.avgDtlT15>=0?'+':'')+ag.avgDtlT15.toFixed(1)+'m':'—'}${aRnkBadge(rnkAvgDtl15,b)}</td>
+        <td style="text-align:center;font-family:Share Tech Mono,monospace;color:${ag.avgMinSpd!=null?(ag.avgMinSpd>=3?'var(--green)':ag.avgMinSpd>=1.5?'var(--orange)':'var(--red)'):'var(--muted)'}">${ag.avgMinSpd!=null?ag.avgMinSpd.toFixed(1)+'kts':'—'}${aRnkBadge(rnkAvgMinSpd,b)}</td>
+        <td style="text-align:center;color:var(--muted);font-family:Share Tech Mono,monospace">${ag.avgHeel!=null?ag.avgHeel.toFixed(1)+'°':'—'}</td>
         <td style="text-align:center;color:var(--muted);font-family:Share Tech Mono,monospace">${ag.avgStartPct!=null?Math.round(ag.avgStartPct)+'%':'—'}</td>
         <td style="text-align:center">${ocsCell(ag.ocsCount)}</td>
       </tr>`;
@@ -4572,7 +4619,7 @@ function renderDaySummary(panelEl, event, races){
   // ══════════════════════════════════════════════════════
   // boatData[sail] = { reachPos[], finPos[], delta[], distGun[], sogGun[], ocsOfficial[], ocsVakaros[] }
   const boatData = {};
-  allBoats.forEach(b=>{ boatData[b]={ reachPos:[], finPos:[], delta:[], distGun:[], sogGun:[], t95:[], startPct:[], ocsVakaros:[] }; });
+  allBoats.forEach(b=>{ boatData[b]={ reachPos:[], finPos:[], delta:[], distGun:[], sogGun:[], t95:[], dtlT15:[], minSpd30:[], heel:[], startPct:[], ocsVakaros:[] }; });
   const regionStats = { LOW:[], MID:[], HIGH:[] };
 
   for(const rd of loaded){
@@ -4612,6 +4659,10 @@ function renderDaySummary(panelEl, event, races){
 
       // 5b. T→95% — exclude OCS and >100m boats
       boatData[b].t95.push(!isExcl2 && !isOcsB2 && ss?.accel != null ? ss.accel : null);
+      boatData[b].dtlT15.push(!isExcl2 && ss?.dtlT15 != null ? ss.dtlT15 : null);
+      boatData[b].minSpd30.push(!isExcl2 && ss?.minSpd30 != null ? ss.minSpd30 : null);
+      const l1s2 = rd.l1stats?.find(s=>s.sail===b);
+      boatData[b].heel.push(l1s2?.heel != null ? l1s2.heel : null);
 
       // 5c. Start line position (0%=pin, 100%=boat)
       const sp = normStartPct(ss?.startLinePct ?? ss?.linePct);
@@ -4637,6 +4688,9 @@ function renderDaySummary(panelEl, event, races){
       avgDist   : avg(d.distGun),
       avgSog    : avg(d.sogGun),
       avgT95    : avg(d.t95),
+      avgDtlT15 : avg(d.dtlT15),
+      avgMinSpd : avg(d.minSpd30),
+      avgHeel   : avg(d.heel),
       avgStartPct: avg(d.startPct),
       ocsCount  : sum(d.ocsVakaros.map(v=>v?1:0)),
       nRaces    : d.reachPos.filter(x=>x!=null).length,
@@ -4701,6 +4755,11 @@ function renderDaySummary(panelEl, event, races){
     return '<span class="ds-ocs-none">0</span>';
   }
 
+  const rnkAvgDist2   = avgRnkMap(allBoats, aggr, 'avgDist',   false);
+  const rnkAvgSog2    = avgRnkMap(allBoats, aggr, 'avgSog',    true);
+  const rnkAvgT952    = avgRnkMap(allBoats, aggr, 'avgT95',    false);
+  const rnkAvgDtl152  = avgRnkMap(allBoats, aggr, 'avgDtlT15', false);
+  const rnkAvgMinSpd2 = avgRnkMap(allBoats, aggr, 'avgMinSpd', true);
   function renderTable(){
     const boats = sortedBoats();
     const colDefs = [
@@ -4711,6 +4770,9 @@ function renderDaySummary(panelEl, event, races){
       {key:'avgDist', label:'AVG DIST TO LINE (m)', sortKey:'avgDist'},
       {key:'avgSog',  label:'AVG SPD@GUN (kts)',sortKey:'avgSog'},
       {key:'avgT95', label:'AVG T→95% (s)', sortKey:'avgT95'},
+      {key:'avgDtlT15', label:'AVG DTL@T-15 (m)', sortKey:'avgDtlT15'},
+      {key:'avgMinSpd', label:'AVG MIN SPD (kts)', sortKey:'avgMinSpd'},
+      {key:'avgHeel',   label:'AVG HEEL (°)',    sortKey:'avgHeel'},
       {key:'avgStartPct', label:'START %', sortKey:'avgStartPct'},
       {key:'ocsCount',label:'OCS (VAKAROS)',    sortKey:'ocsCount'},
       {key:'nRaces',  label:'RACES',            sortKey:'nRaces'},
@@ -4736,9 +4798,12 @@ function renderDaySummary(panelEl, event, races){
         <td style="text-align:center">${finCell(ag.avgFin)}</td>
         <td style="text-align:center"><span class="ds-rank-wrap"><span class="ds-fin-n" style="font-family:Orbitron,monospace;font-size:11px;color:${col}">${fmtN(ag.avgReach,1)}</span>${rankBadge(reachRank)}</span></td>
         <td style="text-align:center">${deltaCell(ag.avgDelta)}</td>
-        <td style="text-align:center"><span class="ds-mono">${ag.avgDist!=null?Math.round(ag.avgDist)+'m':'—'}</span></td>
-        <td style="text-align:center"><span class="ds-mono">${fmtN(ag.avgSog,2)}</span></td>
-        <td style="text-align:center"><span class="ds-mono">${ag.avgT95!=null?ag.avgT95.toFixed(1)+'s':'—'}</span></td>
+        <td style="text-align:center"><span class="ds-mono">${ag.avgDist!=null?Math.round(ag.avgDist)+'m':'—'}${aRnkBadge(rnkAvgDist2,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono">${fmtN(ag.avgSog,2)}${aRnkBadge(rnkAvgSog2,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono">${ag.avgT95!=null?ag.avgT95.toFixed(1)+'s':'—'}${aRnkBadge(rnkAvgT952,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono" style="color:${ag.avgDtlT15!=null?(ag.avgDtlT15>=5?'var(--green)':ag.avgDtlT15>=0?'var(--yellow)':'var(--red)'):'var(--muted)'}">${ag.avgDtlT15!=null?(ag.avgDtlT15>=0?'+':'')+ag.avgDtlT15.toFixed(1)+'m':'—'}${aRnkBadge(rnkAvgDtl152,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono" style="color:${ag.avgMinSpd!=null?(ag.avgMinSpd>=3?'var(--green)':ag.avgMinSpd>=1.5?'var(--orange)':'var(--red)'):'var(--muted)'}">${ag.avgMinSpd!=null?ag.avgMinSpd.toFixed(1)+'kts':'—'}${aRnkBadge(rnkAvgMinSpd2,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono">${ag.avgHeel!=null?ag.avgHeel.toFixed(1)+'°':'—'}</span></td>
         <td style="text-align:center"><span class="ds-mono">${ag.avgStartPct!=null?Math.round(ag.avgStartPct)+'%':'—'}</span></td>
         <td style="text-align:center">${ocsCell(ag.ocsCount)}</td>
         <td style="text-align:center"><span class="ds-mono">${ag.nRaces}/${N}</span></td>
