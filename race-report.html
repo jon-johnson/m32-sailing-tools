@@ -2936,6 +2936,19 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
       const distGun = distToLinePt(pGun, RC, PIN);
       const sogGun  = pGun.sog * 0.539957;
 
+      // startExcluded: boat >100m from line at gun — not meaningfully in this start
+      const startExcluded = Math.abs(distGun) > 100;
+
+      // DTL at T-15s (single point snapshot)
+      const pT15 = ptAtTime(t, gunTs - 15000);
+      const dtlT15 = pT15 ? distToLinePt(pT15, RC, PIN) : null;
+
+      // Minimum speed in final 30s before gun (stall detection)
+      const pre30spd = t.filter(p => p.ts >= gunTs - 30000 && p.ts <= gunTs);
+      const minSpd30 = pre30spd.length
+        ? Math.min(...pre30spd.map(p => (p.sog||0) * 0.539957))
+        : null;
+
       // Start position as percentage up the line
       // 0% = pin, 100% = committee boat
       let linePct = null;
@@ -3018,7 +3031,8 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
         sail, distGun, sogGun, linePct,
         closestApproach,  // signed: negative = was over line, positive = stayed behind
         crossingTime, accel, avgSogApproach,
-        startStatus,
+        startStatus, startExcluded,
+        dtlT15, minSpd30,
       });
     }
     // Sort by l1Order (reach position), with OCS boats at back
@@ -3182,9 +3196,11 @@ function renderRacePanel(panelEl, rd){
         <div class="sh">START REPORT — boat-by-boat</div>
         <div class="table-scroll"><table class="start-table" id="${startTableId}"><thead><tr>
       <th data-col="rank" data-dir="asc" style="cursor:pointer" onclick="sortTable('${startTableId}','rank','asc',true)">#</th>
-      <th>Boat</th>
-      <th data-col="dtl" data-dir="desc" style="cursor:pointer" title="Click to sort. DTL is signed: positive = pre-start side (safe), negative = course side (OCS side)" onclick="sortTable('${startTableId}','dtl','desc',true)">DTL@Gun ⇅<br><span style="font-weight:400;font-size:7px">+ safe  − course</span></th>
+      <th>BOAT</th>
+      <th data-col="dtl" data-dir="desc" style="cursor:pointer" title="Signed distance at gun: + = pre-start (safe), − = OCS" onclick="sortTable('${startTableId}','dtl','desc',true)">DTL@Gun ⇅<br><span style="font-weight:400;font-size:7px">+ safe  − OCS</span></th>
+      <th data-col="dtlt15" data-dir="desc" style="cursor:pointer" title="Signed distance to line at T-15s snapshot" onclick="sortTable('${startTableId}','dtlt15','desc',true)">DTL@T−15 ⇅<br><span style="font-weight:400;font-size:7px">metres from line</span></th>
       <th data-col="spd" data-dir="desc" style="cursor:pointer" onclick="sortTable('${startTableId}','spd','desc',true)">Speed@Gun ⇅</th>
+      <th data-col="minspd" data-dir="desc" style="cursor:pointer" title="Minimum speed in final 30s before gun (stall detection)" onclick="sortTable('${startTableId}','minspd','desc',true)">MinSpd T−30 ⇅<br><span style="font-weight:400;font-size:7px">stall detection</span></th>
       <th data-col="cross" data-dir="asc" style="cursor:pointer" onclick="sortTable('${startTableId}','cross','asc',true)">Line cross ⇅<br><span style="font-weight:400;font-size:7px">sec after gun</span></th>
       <th data-col="linepct" data-dir="desc" style="cursor:pointer" title="0% = pin, 100% = boat" onclick="sortTable('${startTableId}','linepct','desc',true)">Line % ⇅<br><span style="font-weight:400;font-size:7px">0 pin · 100 boat</span></th>
       <th data-col="t95" data-dir="asc" style="cursor:pointer" onclick="sortTable('${startTableId}','t95','asc',true)">T→95% ⇅<br><span style="font-weight:400;font-size:7px">secs to reach speed</span></th>
@@ -3812,11 +3828,11 @@ function initStartReplayR(rd){
   const speedBtns = {1:document.getElementById(raceDomId(rd,'replaySpeed1')),2:document.getElementById(raceDomId(rd,'replaySpeed2')),4:document.getElementById(raceDomId(rd,'replaySpeed4'))};
   if(!canvas || !slider || !playBtn || !timeEl || canvas.offsetWidth===0) return;
   stopOtherStartReplays(key);
-  let st = window._startReplayStates[key] || {rel:-30, playing:true, timer:null, speed:1};
+  let st = window._startReplayStates[key] || {rel:-30, playing:true, timer:null, speed:4};
   if(st.timer) clearInterval(st.timer);
   st.playId = raceDomId(rd,'replayPlay');
   st.rel = Number.isFinite(st.rel) ? st.rel : -30;
-  st.speed = Number.isFinite(st.speed) ? st.speed : 1;
+  st.speed = Number.isFinite(st.speed) ? st.speed : 4;
   const refreshSpeedUI = ()=>{ Object.entries(speedBtns).forEach(([k,btn])=>{ if(btn) btn.classList.toggle('active', Number(k)===st.speed); }); };
   const render = ()=>{ drawStartReplayFrame(rd, st.rel); slider.value=String(st.rel); timeEl.textContent=formatReplayLabel(st.rel); refreshSpeedUI(); };
   const start = ()=>{
@@ -4147,50 +4163,78 @@ function renderStartR(rd){
     if(!aOCS && bOCS) return -1;
     return 0; // preserve existing order within each group
   });
-  const maxSpd = Math.max(...ranked.map(s=>s.sogGun||0), 1);
+  // Excluded boats (>100m from line) sort to bottom after OCS
+  ranked.sort((a, b) => {
+    const aEx = a.startExcluded ? 1 : 0, bEx = b.startExcluded ? 1 : 0;
+    return aEx - bEx;
+  });
+  const maxSpd = Math.max(...ranked.filter(s=>!s.startExcluded).map(s=>s.sogGun||0), 1);
   ranked.forEach((s, i) => {
     const isOCS = rd.ocsFromTelemetry ? rd.ocsFromTelemetry.has(s.sail) : false;
-    const c = isOCS ? '#ff3355' : (COL[s.sail] || '#888');
+    const isExcluded = !!s.startExcluded;
+    const baseColor = isOCS ? '#ff3355' : (COL[s.sail] || '#888');
+    const c = isExcluded ? 'var(--muted2)' : baseColor;
     const rk = i===0?'g':i===1?'s':i===2?'b':'';
     const spdBar = ((s.sogGun||0)/maxSpd*100).toFixed(1);
+    const minspdBar = ((s.minSpd30||0)/maxSpd*100).toFixed(1);
     const linePctBar = Math.max(0, Math.min(100, s.linePct ?? 0)).toFixed(1);
     const dtlVal = s.distGun;
-    const signedCol = dtlVal == null ? 'var(--muted)'
+    const dtlT15Val = s.dtlT15;
+    const signedCol = isExcluded ? 'var(--muted2)'
+                    : dtlVal == null ? 'var(--muted)'
                     : dtlVal >= DTL_CLEAR_M ? 'var(--green)'
                     : dtlVal >= 0           ? 'var(--yellow)'
                     :                         'var(--red)';
+    const dtl15Col = isExcluded ? 'var(--muted2)'
+                   : dtlT15Val == null ? 'var(--muted)'
+                   : dtlT15Val >= DTL_CLEAR_M ? 'var(--green)'
+                   : dtlT15Val >= 0           ? 'var(--yellow)'
+                   :                            'var(--red)';
+    const minspdCol = isExcluded || s.minSpd30 == null ? 'var(--muted2)'
+                    : s.minSpd30 >= 8 ? 'var(--green)'
+                    : s.minSpd30 >= 5 ? 'var(--yellow)'
+                    :                   'var(--red)';
     const tr = document.createElement('tr');
-    tr.dataset.rank = String(i);
-    tr.dataset.dtl  = String(s.distGun ?? 9999);
+    tr.dataset.rank   = String(i);
+    tr.dataset.dtl    = String(s.distGun ?? 9999);
+    tr.dataset.dtlt15 = String(s.dtlT15 ?? 9999);
     tr.dataset.linepct = String(s.linePct ?? -1);
-    tr.dataset.spd  = String(s.sogGun ?? 0);
-    tr.dataset.cross = String(s.crossingTime ?? 9999);
-    tr.dataset.t95  = String(s.accel ?? 9999);
-    tr.dataset.ocs  = isOCS ? '1' : '0';
-    if(isOCS) tr.style.cssText = 'background:rgba(255,51,85,.12);border-left:3px solid #ff3355';
-    // T→95%: accel now holds seconds; lower = better (quicker to reach speed)
-    const t95Col = s.accel == null ? 'var(--muted)'
-                 : s.accel <= 15   ? 'var(--green)'
-                 : s.accel <= 30   ? 'var(--yellow)'
-                 :                   'var(--red)';
+    tr.dataset.spd    = String(s.sogGun ?? 0);
+    tr.dataset.minspd = String(s.minSpd30 ?? 0);
+    tr.dataset.cross  = String(s.crossingTime ?? 9999);
+    tr.dataset.t95    = String(s.accel ?? 9999);
+    tr.dataset.ocs    = isOCS ? '1' : '0';
+    tr.dataset.excluded = isExcluded ? '1' : '0';
+    if(isOCS && !isExcluded) tr.style.cssText = 'background:rgba(255,51,85,.12);border-left:3px solid #ff3355';
+    if(isExcluded) tr.style.cssText = 'opacity:0.38;background:rgba(255,255,255,.02)';
+    const t95Col = isExcluded || s.accel == null ? 'var(--muted2)'
+                 : s.accel <= 15 ? 'var(--green)'
+                 : s.accel <= 30 ? 'var(--yellow)'
+                 :                  'var(--red)';
     tr.innerHTML = `
       <td><div class="td"><span class="rk ${rk}">#${i+1}</span></div></td>
       <td><div class="td" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span class="sn" style="font-size:13px;color:${c}">${s.sail}</span>
         <span style="font-size:9px;color:var(--muted)">${TEAM_NAMES[s.sail]||''}</span>
-        ${isOCS ? '<span style="font-size:8px;font-weight:700;color:#ff3355;font-family:Orbitron,monospace;background:rgba(255,51,85,.2);padding:1px 4px;border-radius:2px;border:1px solid #ff335555">OCS</span>' : ''}
+        ${isOCS && !isExcluded ? '<span style="font-size:8px;font-weight:700;color:#ff3355;font-family:Orbitron,monospace;background:rgba(255,51,85,.2);padding:1px 4px;border-radius:2px;border:1px solid #ff335555">OCS</span>' : ''}
+        ${isExcluded ? '<span style="font-size:8px;color:var(--muted2);font-family:Orbitron,monospace">DNP</span>' : ''}
       </div></td>
-      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;color:${signedCol}">${s.distGun!=null?(s.distGun>=0?'+':'')+s.distGun.toFixed(1)+'m':'—'}</span></div></td>
+      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;color:${signedCol}">${!isExcluded && dtlVal!=null?(dtlVal>=0?'+':'')+dtlVal.toFixed(1)+'m':'—'}</span></div></td>
+      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:12px;font-weight:700;color:${dtl15Col}">${!isExcluded && dtlT15Val!=null?(dtlT15Val>=0?'+':'')+dtlT15Val.toFixed(1)+'m':'—'}</span></div></td>
       <td><div class="td"><div class="br">
         <div class="bb"><div class="bf" style="width:${spdBar}%;background:${c}"></div></div>
-        <div class="bv" style="color:${c}">${s.sogGun!=null?s.sogGun.toFixed(1)+'kts':'—'}</div>
+        <div class="bv" style="color:${c}">${!isExcluded && s.sogGun!=null?s.sogGun.toFixed(1)+'kts':'—'}</div>
       </div></div></td>
-      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:11px;color:${c}">${s.crossingTime!=null?'+'+s.crossingTime.toFixed(1)+'s':'—'}</span></div></td>
+      <td><div class="td"><div class="br">
+        <div class="bb"><div class="bf" style="width:${minspdBar}%;background:${minspdCol}44"></div></div>
+        <div class="bv" style="color:${minspdCol}">${!isExcluded && s.minSpd30!=null?s.minSpd30.toFixed(1)+'kts':'—'}</div>
+      </div></div></td>
+      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:11px;color:${c}">${!isExcluded && s.crossingTime!=null?'+'+s.crossingTime.toFixed(1)+'s':'—'}</span></div></td>
       <td><div class="td"><div class="br">
         <div class="bb"><div class="bf" style="width:${linePctBar}%;background:${c}"></div></div>
-        <div class="bv" style="color:${c}">${s.linePct!=null?s.linePct.toFixed(0)+'%':'—'}</div>
+        <div class="bv" style="color:${c}">${!isExcluded && s.linePct!=null?s.linePct.toFixed(0)+'%':'—'}</div>
       </div></div></td>
-      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:11px;color:${t95Col}">${s.accel!=null?s.accel.toFixed(1)+'s':'—'}</span></div></td>
+      <td><div class="td"><span style="font-family:Orbitron,monospace;font-size:11px;color:${t95Col}">${!isExcluded && s.accel!=null?s.accel.toFixed(1)+'s':'—'}</span></div></td>
     `;
     tb.appendChild(tr);
   });
@@ -4324,10 +4368,12 @@ function renderEventSummary(panelEl, allRaces){
       const rPos=rp>=0?rp+1:null, fPos=typeof fp==='number'?fp:null;
       boatData[b].delta.push(rPos!=null&&fPos!=null?rPos-fPos:null);
       const ss=rd.startStats?.find(s=>s.sail===b);
-      boatData[b].distGun.push(ss?.distGun!=null?Math.abs(ss.distGun):null);
+      const isExcl = ss?.startExcluded === true;
+      const isOcsB = rd.ocsFromTelemetry ? rd.ocsFromTelemetry.has(b) : false;
+      boatData[b].distGun.push(!isExcl && ss?.distGun!=null ? Math.abs(ss.distGun) : null);
       const gd=rd.GUND?.find(d=>d.sail===b);
-      boatData[b].sogGun.push(gd?gd.sog:null);
-      boatData[b].t95.push(ss?.accel != null ? ss.accel : null);
+      boatData[b].sogGun.push(!isExcl && !isOcsB && gd ? gd.sog : null);
+      boatData[b].t95.push(!isExcl && !isOcsB && ss?.accel != null ? ss.accel : null);
       const sp = normStartPct(ss?.startLinePct ?? ss?.linePct);
       boatData[b].startPct.push(sp);
       const reachPos = rp>=0?rp+1:null;
@@ -4555,15 +4601,17 @@ function renderDaySummary(panelEl, event, races){
       // 4. Distance from start line at gun — absolute signed DTL (distance to line itself)
       const ss = rd.startStats?.find(s=>s.sail===b);
       const gd = rd.GUND?.find(d=>d.sail===b);
-      // distGun is signed DTL: + = pre-start side, - = OCS side. Abs = dist to line.
-      const distFromLine = ss?.distGun != null ? Math.abs(ss.distGun) : null;
+      const isExcl2 = ss?.startExcluded === true;
+      const isOcsB2 = rd.ocsFromTelemetry ? rd.ocsFromTelemetry.has(b) : false;
+      // Exclude >100m boats from all start metrics
+      const distFromLine = !isExcl2 && ss?.distGun != null ? Math.abs(ss.distGun) : null;
       boatData[b].distGun.push(distFromLine);
 
-      // 5. Speed at gun (from GUND which already has interpolated SOG in kts)
-      boatData[b].sogGun.push(gd ? gd.sog : null);
+      // 5. Speed at gun — exclude OCS and >100m boats
+      boatData[b].sogGun.push(!isExcl2 && !isOcsB2 && gd ? gd.sog : null);
 
-      // 5b. T→95% time from the start report
-      boatData[b].t95.push(ss?.accel != null ? ss.accel : null);
+      // 5b. T→95% — exclude OCS and >100m boats
+      boatData[b].t95.push(!isExcl2 && !isOcsB2 && ss?.accel != null ? ss.accel : null);
 
       // 5c. Start line position (0%=pin, 100%=boat)
       const sp = normStartPct(ss?.startLinePct ?? ss?.linePct);
