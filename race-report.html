@@ -4477,26 +4477,26 @@ function renderEventSummary(panelEl, allRaces){
       return `<th class="${cls}" data-sort="${c.key}" style="text-align:${c.key==='boat'?'left':'center'};padding:4px 8px">${c.label}</th>`;
     }).join('');
 
-    // Metric rank helper for averages table
-  function avgRnkMap(boats, aggr, key, higherIsBetter) {
-    const withVal = boats.filter(b => aggr[b][key] != null)
-                         .sort((a,b) => higherIsBetter ? aggr[b][key]-aggr[a][key] : aggr[a][key]-aggr[b][key]);
-    const m = new Map();
-    withVal.forEach((b, i) => m.set(b, i + 1));
-    return m;
-  }
-  function aRnkBadge(rnkMap, boat) {
-    const r = rnkMap.get(boat);
-    if(r == null) return '';
-    const col = r===1?'var(--green)':r===2?'#c0c0c0':r===3?'#cd7f32':'var(--muted2)';
-    return `<span style="font-size:8px;font-family:Share Tech Mono,monospace;color:${col};margin-left:3px;vertical-align:super">#${r}</span>`;
-  }
-  const rnkAvgDist   = avgRnkMap(boats, aggr, 'avgDist',   false);
-  const rnkAvgSog    = avgRnkMap(boats, aggr, 'avgSog',    true);
-  const rnkAvgT95    = avgRnkMap(boats, aggr, 'avgT95',    false);
-  const rnkAvgDtl15  = avgRnkMap(boats, aggr, 'avgDtlT15', false);
-  const rnkAvgMinSpd = avgRnkMap(boats, aggr, 'avgMinSpd', true);
-  const rows = boats.map((b,i)=>{
+    // Per-metric rank maps (computed each render since sort order may change)
+    const avgRnkMap = (boats, key, higherIsBetter) => {
+      const withVal = [...boats].filter(b => aggr[b][key] != null)
+                               .sort((a,b) => higherIsBetter ? aggr[b][key]-aggr[a][key] : aggr[a][key]-aggr[b][key]);
+      const m = new Map();
+      withVal.forEach((b, i) => m.set(b, i + 1));
+      return m;
+    };
+    const aRnkBadge = (rnkMap, boat) => {
+      const r = rnkMap.get(boat);
+      if(r == null) return '';
+      const col = r===1?'var(--green)':r===2?'#c0c0c0':r===3?'#cd7f32':'var(--muted2)';
+      return `<span style="font-size:8px;font-family:Share Tech Mono,monospace;color:${col};margin-left:3px;vertical-align:super">#${r}</span>`;
+    };
+    const rnkAvgDist   = avgRnkMap(boats, 'avgDist',   false);
+    const rnkAvgSog    = avgRnkMap(boats, 'avgSog',    true);
+    const rnkAvgT95    = avgRnkMap(boats, 'avgT95',    false);
+    const rnkAvgDtl15  = avgRnkMap(boats, 'avgDtlT15', false);
+    const rnkAvgMinSpd = avgRnkMap(boats, 'avgMinSpd', true);
+    const rows = boats.map((b,i)=>{
       const ag=aggr[b], c=COL[b]||'#888', rank=reachRankMap[b];
       return `<tr style="border-bottom:1px solid rgba(255,255,255,.04)${i%2?' ':';background:rgba(255,255,255,.02)'}">
         <td style="padding:5px 8px">
@@ -4755,11 +4755,25 @@ function renderDaySummary(panelEl, event, races){
     return '<span class="ds-ocs-none">0</span>';
   }
 
-  const rnkAvgDist2   = avgRnkMap(allBoats, aggr, 'avgDist',   false);
-  const rnkAvgSog2    = avgRnkMap(allBoats, aggr, 'avgSog',    true);
-  const rnkAvgT952    = avgRnkMap(allBoats, aggr, 'avgT95',    false);
-  const rnkAvgDtl152  = avgRnkMap(allBoats, aggr, 'avgDtlT15', false);
-  const rnkAvgMinSpd2 = avgRnkMap(allBoats, aggr, 'avgMinSpd', true);
+  // Event averages rank helpers (self-contained)
+  const evtRnkMap = (key, higherIsBetter) => {
+    const withVal = [...allBoats].filter(b => aggr[b][key] != null)
+                                .sort((a,b) => higherIsBetter ? aggr[b][key]-aggr[a][key] : aggr[a][key]-aggr[b][key]);
+    const m = new Map();
+    withVal.forEach((b, i) => m.set(b, i + 1));
+    return m;
+  };
+  const evtRnkBadge = (rnkMap, boat) => {
+    const r = rnkMap.get(boat);
+    if(r == null) return '';
+    const col = r===1?'var(--green)':r===2?'#c0c0c0':r===3?'#cd7f32':'var(--muted2)';
+    return `<span style="font-size:8px;font-family:Share Tech Mono,monospace;color:${col};margin-left:3px;vertical-align:super">#${r}</span>`;
+  };
+  const rnkAvgDist2   = evtRnkMap('avgDist',   false);
+  const rnkAvgSog2    = evtRnkMap('avgSog',    true);
+  const rnkAvgT952    = evtRnkMap('avgT95',    false);
+  const rnkAvgDtl152  = evtRnkMap('avgDtlT15', false);
+  const rnkAvgMinSpd2 = evtRnkMap('avgMinSpd', true);
   function renderTable(){
     const boats = sortedBoats();
     const colDefs = [
@@ -4798,11 +4812,11 @@ function renderDaySummary(panelEl, event, races){
         <td style="text-align:center">${finCell(ag.avgFin)}</td>
         <td style="text-align:center"><span class="ds-rank-wrap"><span class="ds-fin-n" style="font-family:Orbitron,monospace;font-size:11px;color:${col}">${fmtN(ag.avgReach,1)}</span>${rankBadge(reachRank)}</span></td>
         <td style="text-align:center">${deltaCell(ag.avgDelta)}</td>
-        <td style="text-align:center"><span class="ds-mono">${ag.avgDist!=null?Math.round(ag.avgDist)+'m':'—'}${aRnkBadge(rnkAvgDist2,b)}</span></td>
-        <td style="text-align:center"><span class="ds-mono">${fmtN(ag.avgSog,2)}${aRnkBadge(rnkAvgSog2,b)}</span></td>
-        <td style="text-align:center"><span class="ds-mono">${ag.avgT95!=null?ag.avgT95.toFixed(1)+'s':'—'}${aRnkBadge(rnkAvgT952,b)}</span></td>
-        <td style="text-align:center"><span class="ds-mono" style="color:${ag.avgDtlT15!=null?(ag.avgDtlT15>=5?'var(--green)':ag.avgDtlT15>=0?'var(--yellow)':'var(--red)'):'var(--muted)'}">${ag.avgDtlT15!=null?(ag.avgDtlT15>=0?'+':'')+ag.avgDtlT15.toFixed(1)+'m':'—'}${aRnkBadge(rnkAvgDtl152,b)}</span></td>
-        <td style="text-align:center"><span class="ds-mono" style="color:${ag.avgMinSpd!=null?(ag.avgMinSpd>=3?'var(--green)':ag.avgMinSpd>=1.5?'var(--orange)':'var(--red)'):'var(--muted)'}">${ag.avgMinSpd!=null?ag.avgMinSpd.toFixed(1)+'kts':'—'}${aRnkBadge(rnkAvgMinSpd2,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono">${ag.avgDist!=null?Math.round(ag.avgDist)+'m':'—'}${evtRnkBadge(rnkAvgDist2,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono">${fmtN(ag.avgSog,2)}${evtRnkBadge(rnkAvgSog2,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono">${ag.avgT95!=null?ag.avgT95.toFixed(1)+'s':'—'}${evtRnkBadge(rnkAvgT952,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono" style="color:${ag.avgDtlT15!=null?(ag.avgDtlT15>=5?'var(--green)':ag.avgDtlT15>=0?'var(--yellow)':'var(--red)'):'var(--muted)'}">${ag.avgDtlT15!=null?(ag.avgDtlT15>=0?'+':'')+ag.avgDtlT15.toFixed(1)+'m':'—'}${evtRnkBadge(rnkAvgDtl152,b)}</span></td>
+        <td style="text-align:center"><span class="ds-mono" style="color:${ag.avgMinSpd!=null?(ag.avgMinSpd>=3?'var(--green)':ag.avgMinSpd>=1.5?'var(--orange)':'var(--red)'):'var(--muted)'}">${ag.avgMinSpd!=null?ag.avgMinSpd.toFixed(1)+'kts':'—'}${evtRnkBadge(rnkAvgMinSpd2,b)}</span></td>
         <td style="text-align:center"><span class="ds-mono">${ag.avgHeel!=null?ag.avgHeel.toFixed(1)+'°':'—'}</span></td>
         <td style="text-align:center"><span class="ds-mono">${ag.avgStartPct!=null?Math.round(ag.avgStartPct)+'%':'—'}</span></td>
         <td style="text-align:center">${ocsCell(ag.ocsCount)}</td>
