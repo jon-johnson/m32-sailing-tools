@@ -1,6 +1,6 @@
 {
   "title": "M32 Miami March 2026",
-  "subtitle": "Miami, Florida · 14–15 Mar 2026 · EST (UTC-5)",
+  "subtitle": "Miami, Florida · 14–15 Mar 2026 · EDT (UTC-4)",
   "fleet": {
     "excludedBoats": ["98", "99"],
     "boatsAll": ["01", "61", "63", "65", "69", "70", "71", "77"],
@@ -36,28 +36,28 @@
       "id": "lgtdS5rHwinZuNVDgrT8",
       "label": "DAY 1",
       "date": "2026-03-14",
-      "tz": "EST",
-      "tzOffset": -5,
+      "tz": "EDT",
+      "tzOffset": -4,
       "raceDay": 1,
-      "dayStart": 1773464400000,
-      "dayEnd":   1773550799999,
+      "dayStart": 1773460800000,
+      "dayEnd":   1773547199999,
       "knownGuns": [
-        [1, 1773507840000],
-        [2, 1773510060000],
-        [3, 1773511680000],
-        [4, 1773513420000],
-        [5, 1773515220000]
+        [1, 1773504240000],
+        [2, 1773506460000],
+        [3, 1773508080000],
+        [4, 1773509820000],
+        [5, 1773511620000]
       ]
     },
     {
       "id": "lgtdS5rHwinZuNVDgrT8",
       "label": "DAY 2",
       "date": "2026-03-15",
-      "tz": "EST",
-      "tzOffset": -5,
+      "tz": "EDT",
+      "tzOffset": -4,
       "raceDay": 2,
-      "dayStart": 1773550800000,
-      "dayEnd":   1773637199999,
+      "dayStart": 1773547200000,
+      "dayEnd":   1773633599999,
       "knownGuns": []
     }
   ],
