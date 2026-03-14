@@ -898,6 +898,22 @@ input[type=range] { width: 100%; accent-color: var(--teal); height: 4px; margin:
     </div>
   </div>
 
+  <!-- Live wind card -->
+  <div class="priority-card" style="margin:0 12px 12px;flex-shrink:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div style="font-size:9px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase">Live Wind</div>
+      <div id="wpage-live-label" style="font-size:9px;font-family:'Share Tech Mono',monospace;color:var(--teal)">––</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="pc-value teal" id="wpage-live-dir" style="font-size:32px;line-height:1">––°</div>
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--text3);margin-bottom:3px">Confidence</div>
+        <div class="confidence-bar"><div class="confidence-fill" id="wpage-live-conf-bar" style="width:0%"></div></div>
+        <div style="font-size:10px;color:var(--text3);margin-top:3px" id="wpage-live-conf-txt">––</div>
+      </div>
+    </div>
+  </div>
+
   <div class="wind-section" style="margin:0 12px 12px;flex-shrink:0">
     <div class="wind-row">
       <span class="wr-label">Blended Wind Direction</span>
@@ -923,6 +939,14 @@ input[type=range] { width: 100%; accent-color: var(--teal); height: 4px; margin:
       <div style="font-size:10px;color:var(--text3);margin-bottom:5px">Inference Confidence</div>
       <div class="confidence-bar"><div class="confidence-fill" id="wpage-conf-bar" style="width:0%"></div></div>
       <div style="font-size:10px;color:var(--text3);margin-top:4px" id="wpage-conf-txt">0%</div>
+    </div>
+  </div>
+
+  <!-- Per-race wind history table -->
+  <div style="margin:0 12px 12px;flex-shrink:0">
+    <div style="font-size:10px;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Wind By Race</div>
+    <div id="wpage-race-table" style="display:flex;flex-direction:column;gap:4px">
+      <div style="font-size:10px;color:var(--text3);font-family:'Share Tech Mono',monospace">No race data yet</div>
     </div>
   </div>
 
@@ -993,6 +1017,11 @@ const STATE = {
   connected: false,
   // live mode
   pollSec: 30,
+  windRows: [],          // cached rows from wide wind-inference fetch
+  windFetchTimer: null,  // separate timer for wind fetch
+  lastWindFetch: 0,      // timestamp of last wind fetch
+  raceWinds: [],         // [{raceNum, wf, conf, stableN, durationMin, isLive, isRecall}]
+  liveWind: null,        // {wf, conf, stableN, raceNum, label} — most current inference
   pollTimer: null,
   // replay mode
   replayStartTs: null,    // unix ms of window start
@@ -1318,18 +1347,17 @@ function updateBlendedWind() {
 // ═══════════════════════════════════════════════════════════
 const API_BASE = 'https://teleapi.regatta.app/telemetry/event';
 
+// Position poll — tight 60s window, high limit → always current
 async function fetchTelemetry() {
   const eventId = STATE.eventId;
   if(!eventId) return;
   const sns = getConfiguredSNs();
   const excluded = getExcluded();
-
-  // Fetch last 15 minutes of data (for wind inference we need ~10 min)
-  const before = Date.now();
-  const after  = before - 15 * 60 * 1000;
   const division = document.getElementById('cfg-division').value || 'M32';
 
-  const url = `${API_BASE}/${eventId}?after=${after}&before=${before}&limit=5000${division ? '&division='+encodeURIComponent(division) : ''}`;
+  const before = Date.now();
+  const after  = before - 60 * 1000;  // 60s window — well within limit for this fleet
+  const url = `${API_BASE}/${eventId}?after=${after}&before=${before}&limit=100000${division ? '&division='+encodeURIComponent(division) : ''}`;
 
   try {
     const resp = await fetch(url);
@@ -1337,7 +1365,8 @@ async function fetchTelemetry() {
     const data = await resp.json();
     const rows = data?.Rows || data?.rows || null;
     if(!rows) throw new Error('No rows in response');
-    processRows(rows, sns, excluded);
+    // Pass wind rows separately so processRows can use the wide-window data for inference
+    processRows(rows, sns, excluded, STATE.windRows);
     STATE.connected = true;
     STATE.lastPollTime = Date.now();
     setStatus('live', `${rows.length} rows · ${division}`);
@@ -1349,12 +1378,170 @@ async function fetchTelemetry() {
         STATE.liveScanDone = true;
         autoScanLiveMarks(rows);
       } else {
-        STATE.liveScanDone = true;  // SNs already configured, skip scan
+        STATE.liveScanDone = true;
       }
     }
   } catch(e) {
     STATE.connected = false;
     setStatus('error', 'Poll failed: ' + e.message);
+  }
+}
+
+// Wind fetch — wide 10min window, runs every 2 minutes
+async function fetchWindData() {
+  const eventId = STATE.eventId;
+  if(!eventId) return;
+  const division = document.getElementById('cfg-division').value || 'M32';
+  const before = Date.now();
+  const after  = before - 3 * 60 * 60 * 1000;  // 3-hour window for full day
+  const url = `${API_BASE}/${eventId}?after=${after}&before=${before}&limit=100000${division ? '&division='+encodeURIComponent(division) : ''}`;
+  try {
+    const resp = await fetch(url);
+    if(!resp.ok) return;
+    const data = await resp.json();
+    const rows = data?.Rows || data?.rows || null;
+    if(!rows) return;
+    STATE.windRows = rows;
+    STATE.lastWindFetch = Date.now();
+    computeRaceWinds(rows);
+    if(document.getElementById('page-wind').classList.contains('active')) updateWindPage();
+  } catch(e) { /* silent — wind is best-effort */ }
+}
+
+// ── Compute per-race wind inferences from a wide row set ─────────────────────
+function computeRaceWinds(rows) {
+  const WW = wwCenter(), LW = lwCenter();
+  if(!WW || !LW) return;
+  const excluded = getExcluded();
+  const now = Date.now();
+
+  // ── Step 1: find all (raceNum, stage) blocks ─────────────────────────────
+  const blockMap = {};  // key: "R{n}_{stage}"
+  for(const row of rows) {
+    const [ts, sn, , sail, raceNum, , stage, role] = row;
+    if(role === 'mark') continue;
+    const key = `R${raceNum}_${stage}`;
+    if(!blockMap[key]) blockMap[key] = { raceNum: +raceNum, stage, firstTs: +ts, lastTs: +ts };
+    if(+ts < blockMap[key].firstTs) blockMap[key].firstTs = +ts;
+    if(+ts > blockMap[key].lastTs)  blockMap[key].lastTs  = +ts;
+  }
+
+  // ── Step 2: per race, find gun time and total racing duration ─────────────
+  const raceMap = {};  // raceNum -> { gunTs, endTs, stages }
+  for(const b of Object.values(blockMap)) {
+    const r = b.raceNum;
+    if(!raceMap[r]) raceMap[r] = { gunTs: null, endTs: 0, hasFinishing: false };
+    if(b.stage === 'in_progress' && (raceMap[r].gunTs === null || b.firstTs < raceMap[r].gunTs)) {
+      raceMap[r].gunTs = b.firstTs;
+    }
+    if((b.stage === 'in_progress' || b.stage === 'finishing') && b.lastTs > raceMap[r].endTs) {
+      raceMap[r].endTs = b.lastTs;
+    }
+    if(b.stage === 'finishing') raceMap[r].hasFinishing = true;
+  }
+
+  // ── Step 3: build tracks from rows (reuse processRows logic) ─────────────
+  const allTracks = {};
+  for(const row of rows) {
+    const [ts, , , sail, raceNum, , stage, role, lat, lon] = row;
+    if(role === 'mark' || !sail || !lat || !lon || +lat===0 || +lon===0) continue;
+    if(excluded.has(String(sail))) continue;
+    const key = `${raceNum}_${sail}`;
+    if(!allTracks[key]) allTracks[key] = { raceNum: +raceNum, sail: String(sail), pts: [] };
+    allTracks[key].pts.push({ ts: +ts, lat: +lat, lon: +lon, cog: 0, sog: 0, hdg: 0 });
+  }
+  // Compute COG/SOG per track
+  for(const t of Object.values(allTracks)) {
+    t.pts.sort((a,b) => a.ts - b.ts);
+    for(let i=1; i<t.pts.length; i++) {
+      const dt = (t.pts[i].ts - t.pts[i-1].ts) / 1000;
+      if(dt > 0.1) {
+        t.pts[i].cog = brg(t.pts[i-1].lat, t.pts[i-1].lon, t.pts[i].lat, t.pts[i].lon);
+        t.pts[i].sog = hav(t.pts[i-1].lat, t.pts[i-1].lon, t.pts[i].lat, t.pts[i].lon) / dt * 1.94384;
+      } else {
+        t.pts[i].cog = t.pts[i-1].cog;
+        t.pts[i].sog = t.pts[i-1].sog;
+      }
+      t.pts[i].hdg = t.pts[i].cog;
+    }
+  }
+
+  // ── Step 4: for each race, slice tracks to gun+120s → gun+600s ───────────
+  const MIN_RACE_MS = 3 * 60 * 1000;  // 3-minute recall filter
+  const raceNums = Object.keys(raceMap).map(Number).sort((a,b)=>a-b);
+  const raceWinds = [];
+
+  // Identify current in-progress race (most recent gun, still active)
+  const currentRaceNum = Object.entries(raceMap)
+    .filter(([, r]) => r.gunTs && r.endTs <= now && (now - r.gunTs) < 45*60*1000 && !r.hasFinishing)
+    .sort(([,a],[,b]) => b.gunTs - a.gunTs)
+    .map(([n]) => +n)[0] || null;
+
+  // Also check if currently in_progress or finishing (endTs close to now)
+  const activeRaceNum = Object.entries(raceMap)
+    .filter(([, r]) => r.gunTs && (now - r.endTs) < 60000)
+    .sort(([,a],[,b]) => b.gunTs - a.gunTs)
+    .map(([n]) => +n)[0] || null;
+
+  const liveRaceNum = activeRaceNum || currentRaceNum;
+
+  for(const raceNum of raceNums) {
+    const r = raceMap[raceNum];
+    if(!r.gunTs) continue;
+
+    const durationMs = r.endTs - r.gunTs;
+    const durationMin = +(durationMs / 60000).toFixed(1);
+    const isRecall = durationMs < MIN_RACE_MS;
+    const isLive = raceNum === liveRaceNum;
+
+    if(isRecall) {
+      raceWinds.push({ raceNum, wf: null, conf: 0, stableN: 0, durationMin, isRecall: true, isLive: false });
+      continue;
+    }
+
+    // Slice tracks to wind inference window
+    const windowStart = r.gunTs + 120000;
+    const windowEnd   = isLive ? now : r.gunTs + 10 * 60 * 1000;
+    const raceTracks = {};
+    for(const t of Object.values(allTracks)) {
+      if(t.raceNum !== raceNum) continue;
+      const pts = t.pts.filter(p => p.ts >= windowStart && p.ts <= windowEnd);
+      if(pts.length >= 5) raceTracks[t.sail] = pts;
+    }
+
+    const inf = inferWind(raceTracks, WW.lat, WW.lon, LW.lat, LW.lon, r.gunTs);
+    raceWinds.push({
+      raceNum, wf: inf?.wf ?? null, conf: inf?.confidence ?? 0,
+      stableN: inf?.stableN ?? 0, durationMin, isRecall: false, isLive
+    });
+  }
+
+  STATE.raceWinds = raceWinds;
+
+  // Live wind = current race if enough data, else last qualifying race
+  const liveEntry = raceWinds.find(r => r.isLive && !r.isRecall && r.wf != null);
+  const lastGood  = [...raceWinds].reverse().find(r => !r.isRecall && !r.isLive && r.wf != null);
+
+  if(liveEntry) {
+    STATE.liveWind = { wf: liveEntry.wf, conf: liveEntry.conf, stableN: liveEntry.stableN,
+                       raceNum: liveEntry.raceNum, label: `R${liveEntry.raceNum} · live` };
+  } else if(lastGood) {
+    STATE.liveWind = { wf: lastGood.wf, conf: lastGood.conf, stableN: lastGood.stableN,
+                       raceNum: lastGood.raceNum, label: `R${lastGood.raceNum} · last race` };
+  } else {
+    STATE.liveWind = null;
+  }
+
+  // Feed live wind into the existing blended wind system if WW+LW exist
+  if(STATE.liveWind) {
+    STATE.windInferred = {
+      wf: STATE.liveWind.wf, confidence: STATE.liveWind.conf,
+      stableN: STATE.liveWind.stableN, n: Object.keys(allTracks).length,
+      fallback: false, wfUp: null, wfDw: null,
+      uwPort:[], uwStbd:[], dwPort:[], dwStbd:[],
+      portMean: null, stbdMean: null, dwPortMean: null, dwStbdMean: null
+    };
+    updateBlendedWind();
   }
 }
 
@@ -1395,7 +1582,7 @@ function autoScanLiveMarks(rows) {
   enterMarkAssignMode();
 }
 
-function processRows(rows, sns, excluded) {
+function processRows(rows, sns, excluded, windRows) {
   // Row: [ts, sn, division, sail_number, race_number, start_number, race_stage, role, lat, lon]
   // role==='mark' is the definitive indicator — never classify a competitor row as a mark
   const tracks = {};
@@ -1476,12 +1663,34 @@ function processRows(rows, sns, excluded) {
   if(newPIN)        STATE.marks.PIN = newPIN;
   STATE.tracks = tracks;
 
-  // Wind inference
+  // Wind inference — use wide-window windRows if available, else fall back to position rows
   const WW = wwCenter();
   const LW = lwCenter();
   if(WW && LW) {
-    const gunTs = now - 10 * 60 * 1000; // approximate: use 10min ago as "gun"
-    STATE.windInferred = inferWind(tracks, WW.lat, WW.lon, LW.lat, LW.lon, gunTs);
+    const inferRows = (windRows && windRows.length) ? windRows : rows;
+    // Build tracks from inferRows for wind analysis
+    const windTracks = {};
+    for(const row of inferRows) {
+      const [wts, wsn, , wsail, , , , wrole, wlat, wlon] = row;
+      if(wrole === 'mark' || !wsail || !wlat || !wlon || +wlat===0 || +wlon===0) continue;
+      const ws = String(wsail);
+      if(excluded.has(ws)) continue;
+      if(!windTracks[ws]) windTracks[ws] = [];
+      windTracks[ws].push({ts:+wts, lat:+wlat, lon:+wlon, cog:0, sog:0, hdg:0});
+    }
+    // Compute COG/SOG for wind tracks
+    for(const sail of Object.keys(windTracks)) {
+      const t = windTracks[sail];
+      t.sort((a,b)=>a.ts-b.ts);
+      for(let i=1;i<t.length;i++) {
+        const dt = (t[i].ts-t[i-1].ts)/1000;
+        if(dt>0.1) { t[i].cog=brg(t[i-1].lat,t[i-1].lon,t[i].lat,t[i].lon); t[i].sog=hav(t[i-1].lat,t[i-1].lon,t[i].lat,t[i].lon)/dt*1.94384; }
+        else { t[i].cog=t[i-1].cog; t[i].sog=t[i-1].sog; }
+        t[i].hdg=t[i].cog;
+      }
+    }
+    const gunTs = now - 10 * 60 * 1000;
+    STATE.windInferred = inferWind(windTracks, WW.lat, WW.lon, LW.lat, LW.lon, gunTs);
   }
   updateBlendedWind();
   updateDataPage();
@@ -1511,10 +1720,14 @@ function startPolling() {
   STATE.division = document.getElementById('cfg-division').value;
   STATE.pollSec = +document.getElementById('cfg-poll').value || 30;
   clearInterval(STATE.pollTimer);
-  STATE.liveScanDone = false;   // allow auto-scan on fresh connect
+  clearInterval(STATE.windFetchTimer);
+  STATE.liveScanDone = false;
+  STATE.windRows = [];
   setStatus('stale', 'Connecting…');
-  fetchTelemetry();
-  STATE.pollTimer = setInterval(fetchTelemetry, STATE.pollSec * 1000);
+  fetchWindData();          // prime wind data immediately
+  fetchTelemetry();         // prime position data immediately
+  STATE.pollTimer      = setInterval(fetchTelemetry, STATE.pollSec * 1000);
+  STATE.windFetchTimer = setInterval(fetchWindData, 10 * 60 * 1000); // every 10 min
   toast(`Connected · polling ${STATE.pollSec}s`);
 }
 
@@ -1986,6 +2199,54 @@ function updateWindPage() {
   const userDir = STATE.windUser;
   const blend = STATE.windBlended;
 
+  // ── Live wind card ──────────────────────────────────────────
+  const lw = STATE.liveWind;
+  if(lw && lw.wf != null) {
+    document.getElementById('wpage-live-dir').textContent = Math.round(lw.wf)+'° '+card(lw.wf);
+    document.getElementById('wpage-live-label').textContent = lw.label;
+    const lpct = Math.round(lw.conf * 100);
+    document.getElementById('wpage-live-conf-bar').style.width = lpct+'%';
+    document.getElementById('wpage-live-conf-txt').textContent = lpct+'% · '+lw.stableN+' pts';
+    // Pulse the label if live race
+    const lbl = document.getElementById('wpage-live-label');
+    lbl.style.color = lw.label.includes('live') ? 'var(--green)' : 'var(--teal)';
+  } else {
+    document.getElementById('wpage-live-dir').textContent = '––°';
+    document.getElementById('wpage-live-label').textContent = 'No race data';
+    document.getElementById('wpage-live-conf-bar').style.width = '0%';
+    document.getElementById('wpage-live-conf-txt').textContent = '––';
+  }
+
+  // ── Per-race table ──────────────────────────────────────────
+  const tableEl = document.getElementById('wpage-race-table');
+  if(STATE.raceWinds.length) {
+    tableEl.innerHTML = STATE.raceWinds.map(r => {
+      if(r.isRecall) {
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg2);border-radius:6px;opacity:0.45">
+          <span style="font-family:'Orbitron',monospace;font-size:10px;color:var(--text3);min-width:24px">R${r.raceNum}</span>
+          <span style="font-size:10px;color:var(--text3);flex:1">Recall</span>
+          <span style="font-size:9px;color:var(--text3)">${r.durationMin}min</span>
+        </div>`;
+      }
+      const confPct = Math.round(r.conf * 100);
+      const confColor = confPct >= 70 ? 'var(--green)' : confPct >= 45 ? 'var(--amber)' : 'var(--red)';
+      const liveBadge = r.isLive
+        ? `<span style="font-size:8px;font-family:'Orbitron',monospace;color:var(--green);margin-left:4px">LIVE</span>` : '';
+      const dirText = r.wf != null ? Math.round(r.wf)+'° '+card(r.wf) : '––';
+      const dots = Math.round(confPct/25);
+      const dotStr = '●'.repeat(dots)+'○'.repeat(4-dots);
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--bg2);border-radius:6px;border:1px solid ${r.isLive?'rgba(0,230,122,0.3)':'var(--border)'}">
+        <span style="font-family:'Orbitron',monospace;font-size:11px;color:var(--teal);min-width:24px">R${r.raceNum}</span>
+        <span style="font-family:'Orbitron',monospace;font-size:14px;font-weight:700;color:var(--white);flex:1">${dirText}${liveBadge}</span>
+        <span style="font-size:10px;color:${confColor};letter-spacing:-1px">${dotStr}</span>
+        <span style="font-size:9px;color:var(--text3)">${r.durationMin}m</span>
+      </div>`;
+    }).join('');
+  } else {
+        tableEl.innerHTML = '<div style="font-size:10px;color:var(--text3)">No race data yet</div>';
+  }
+
+  // ── Existing blend/inferred section ─────────────────────────
   document.getElementById('wpage-user').textContent = Math.round(userDir)+'° '+card(userDir);
   document.getElementById('wpage-blend').textContent = blend ? Math.round(blend.dir)+'° '+card(blend.dir) : '––';
   document.getElementById('wpage-method').textContent = blend?.method || '––';
@@ -1997,15 +2258,15 @@ function updateWindPage() {
     const pct = Math.round(inf.confidence*100);
     document.getElementById('wpage-conf-bar').style.width = pct+'%';
     document.getElementById('wpage-conf-txt').textContent = pct+'% confidence · '+inf.stableN+' stable pts';
-    document.getElementById('wind-page-boats').textContent = inf.n+' boats';
+    document.getElementById('wind-page-boats').textContent = (inf.n||0)+' boats';
     document.getElementById('cl-uw-port').textContent = inf.portMean!=null?Math.round(inf.portMean)+'°':'––';
-    document.getElementById('cl-uw-port-n').textContent = 'n='+inf.uwPort.length;
+    document.getElementById('cl-uw-port-n').textContent = 'n='+(inf.uwPort?.length||0);
     document.getElementById('cl-uw-stbd').textContent = inf.stbdMean!=null?Math.round(inf.stbdMean)+'°':'––';
-    document.getElementById('cl-uw-stbd-n').textContent = 'n='+inf.uwStbd.length;
+    document.getElementById('cl-uw-stbd-n').textContent = 'n='+(inf.uwStbd?.length||0);
     document.getElementById('cl-dw-port').textContent = inf.dwPortMean!=null?Math.round(inf.dwPortMean)+'°':'––';
-    document.getElementById('cl-dw-port-n').textContent = 'n='+inf.dwPort.length;
+    document.getElementById('cl-dw-port-n').textContent = 'n='+(inf.dwPort?.length||0);
     document.getElementById('cl-dw-stbd').textContent = inf.dwStbdMean!=null?Math.round(inf.dwStbdMean)+'°':'––';
-    document.getElementById('cl-dw-stbd-n').textContent = 'n='+inf.dwStbd.length;
+    document.getElementById('cl-dw-stbd-n').textContent = 'n='+(inf.dwStbd?.length||0);
   } else {
     document.getElementById('wpage-inf').textContent = 'no data';
     document.getElementById('wpage-diff').textContent = '––';
@@ -2975,12 +3236,14 @@ function setMode(mode) {
     STATE.replayStartTs = null;
     STATE.replayScrubTs = null;
     clearInterval(STATE.pollTimer);
+    clearInterval(STATE.windFetchTimer);
   } else {
     repBtn.className   = 'mode-btn active-replay';
     liveBtn.className  = 'mode-btn';
     liveSection.style.display   = 'none';
     replaySection.style.display = '';
     clearInterval(STATE.pollTimer);
+    clearInterval(STATE.windFetchTimer);
     if(gpsPingBtn) gpsPingBtn.style.display = 'none';
   }
 }
