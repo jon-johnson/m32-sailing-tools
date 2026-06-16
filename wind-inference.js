@@ -124,7 +124,7 @@
       if (!t || t.length < 10) continue;
       for (const p of t) {
         if (p.ts < usableStart || p.ts > usableEnd) continue;
-        const sog = (p.sog || 0) * 0.539957;
+        const sog = (p.sog || 0);
         if (sog < 2) continue;
         const hdg = p.hdg || 0;
         const relDW = Math.abs(((hdg - downwindAxis + 540) % 360) - 180);
@@ -327,7 +327,7 @@
         if (!p || !a || !b) continue;
         if (p.ts < usableStart || p.ts > usableEnd) continue;
 
-        const sog = (p.sog || 0) * 0.539957;
+        const sog = (p.sog || 0);
         if (sog < (sogFloor || 4.5) || sog > 35) continue;
 
         const dt = Math.max(0.001, ((b.ts || 0) - (a.ts || 0)) / 1000);
@@ -340,7 +340,7 @@
         const turn    = Math.abs(angDiff(cogPrev, cogNext));
 
         const hdgAgree = angDiff(cog, p.hdg || cog);
-        const acc = Math.abs(((t[i + 1].sog || 0) - (t[i - 1].sog || 0)) * 0.539957);
+        const acc = Math.abs(((t[i + 1].sog || 0) - (t[i - 1].sog || 0)));
 
         // Loosened hdgAgree from 24° → 30°
         if (turn > 16 || Math.abs(hdgAgree) > 30 || acc > 1.4) continue;
