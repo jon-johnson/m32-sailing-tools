@@ -91,6 +91,13 @@ a{color:var(--cyan);text-decoration:none}
 .replaySpeedGroup{display:flex;align-items:center;gap:4px}
 .replaySpeedBtn{background:#0d1624;border:1px solid #2e4965;color:#9cc5ff;border-radius:6px;padding:3px 7px;font:700 9px Orbitron,sans-serif;cursor:pointer}
 .replaySpeedBtn.active{background:#123763;color:#fff;border-color:#5aa8ff}
+.accelLegend{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;padding:0 2px}
+.accelChip{display:inline-flex;align-items:center;gap:5px;background:#0d1624;border:1px solid #24364d;color:#cfe0f2;border-radius:5px;padding:3px 8px;font:700 10px Orbitron,sans-serif;cursor:pointer;transition:border-color .12s,opacity .12s,background .12s}
+.accelChip:hover{border-color:var(--chipcol);background:#102438}
+.accelChip.active{border-color:var(--chipcol);background:#13283f;box-shadow:0 0 0 1px var(--chipcol) inset}
+.accelChip.dim{opacity:.4}
+.accelSw{width:9px;height:9px;border-radius:2px;display:inline-block;flex:none}
+.accelTeam{font:400 8px 'Share Tech Mono',monospace;color:var(--muted);margin-left:3px}
 @media (max-width: 980px){.replayStartGrid{grid-template-columns:1fr}.replayPortraitCard{max-width:520px;justify-self:center}}
 .mh{font-family:Orbitron,monospace;font-size:8px;font-weight:700;color:var(--muted);letter-spacing:1px;
   padding:6px 10px;border-bottom:1px solid var(--muted2);background:var(--bg3)}
@@ -3314,6 +3321,16 @@ function renderRacePanel(panelEl, rd){
       </div>
     </div>
 
+    <!-- Acceleration curves — full fleet, this race -->
+    <div class="mc" style="margin-bottom:8px">
+      <div class="mh" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <span>ACCELERATION CURVES · SOG vs TIME-TO-GUN · T-30 TO T+30</span>
+        <span style="font-size:8px;color:var(--muted);font-weight:400">click a boat to spotlight · gun = T0</span>
+      </div>
+      <canvas id="${raceDomId(rd,'cAccel')}" style="width:100%;display:block"></canvas>
+      <div id="${raceDomId(rd,'accelLegend')}" class="accelLegend"></div>
+    </div>
+
 
   `;
 
@@ -3327,6 +3344,7 @@ function renderRacePanel(panelEl, rd){
     if(GUND.length && RC && PIN) drawGunR(rd);
     if(T50.length  && RC && PIN) drawT50R(rd);
     if(RC && PIN) initStartReplayR(rd);
+    if(Object.keys(rd.tracks||{}).length) drawAccelCurveR(rd);
     if(RC && PIN) drawCourseR(rd); // draw even without WW/LW gates
     if(l1stats.length) renderL1R(rd);
     drawWindR(rd);
@@ -3483,6 +3501,159 @@ function gunMapBoatColor(rd, sail){
   if(i===1) return '#d1d5db';
   if(i===2) return '#cd7f32';
   return '#22c55e';
+}
+
+// ── Acceleration curves: SOG (kts) vs time-to-gun, full fleet ──
+// Per-race spotlight state: which sail is highlighted (null = none)
+window._accelSpotlight = window._accelSpotlight || {};
+
+function drawAccelCurveR(rd){
+  const cid = raceDomId(rd,'cAccel');
+  const el = document.getElementById(cid);
+  if(!el) return;
+  const W = el.offsetWidth || el.parentElement?.offsetWidth || 800;
+  if(!W) return;
+  const H = Math.max(300, Math.min(440, Math.round(W*0.46)));
+  const {ctx} = cvs(cid, H);
+  cbg(ctx, W, H);
+
+  // Time + speed windows
+  const T0 = -30, T1 = 30;            // seconds relative to gun
+  const padL = 44, padR = 14, padT = 16, padB = 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  // Gather per-boat SOG samples and find max speed for Y-scale
+  const sails = Object.keys(rd.tracks||{})
+    .filter(s => !EXCLUDED_BOATS.includes(s) && isVisibleAtGunReplay(rd, s));
+  if(!sails.length){ return; }
+
+  const STEP = 0.5; // sample every 0.5s
+  const series = {};
+  let vMax = 6;
+  for(const sail of sails){
+    const t = rd.tracks[sail]; if(!t) continue;
+    const pts = [];
+    for(let rel = T0; rel <= T1 + 1e-6; rel += STEP){
+      const p = interpTrackPoint(t, rd.gunTs + rel*1000, null);
+      if(p){
+        const kt = (p.sog||0) * 0.539957;
+        pts.push([rel, kt]);
+        if(kt > vMax) vMax = kt;
+      } else {
+        pts.push([rel, null]);
+      }
+    }
+    series[sail] = pts;
+  }
+  vMax = Math.ceil(vMax/2)*2; // round up to even
+
+  const xOf = rel => padL + ((rel - T0)/(T1 - T0)) * plotW;
+  const yOf = kt  => padT + plotH - (kt / vMax) * plotH;
+
+  // ── Grid + axes ──
+  ctx.save();
+  ctx.strokeStyle = 'rgba(120,170,210,0.10)';
+  ctx.fillStyle   = 'rgba(150,190,220,0.55)';
+  ctx.font = '9px "Share Tech Mono", monospace';
+  ctx.lineWidth = 1;
+  // horizontal speed gridlines
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for(let v = 0; v <= vMax; v += 2){
+    const y = yOf(v);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.fillText(v + '', padL - 6, y);
+  }
+  // vertical time gridlines every 5s
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for(let rel = T0; rel <= T1 + 1e-6; rel += 5){
+    const x = xOf(rel);
+    ctx.strokeStyle = rel === 0 ? 'rgba(250,204,21,0.55)' : 'rgba(120,170,210,0.10)';
+    ctx.lineWidth = rel === 0 ? 1.6 : 1;
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+    const lbl = rel === 0 ? 'GUN' : (rel > 0 ? '+' + rel : '' + rel);
+    ctx.fillStyle = rel === 0 ? 'rgba(250,204,21,0.9)' : 'rgba(150,190,220,0.55)';
+    ctx.fillText(lbl, x, padT + plotH + 6);
+  }
+  // Y axis label
+  ctx.save();
+  ctx.translate(11, padT + plotH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillStyle = 'rgba(150,190,220,0.6)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '8px Orbitron, sans-serif';
+  ctx.fillText('SOG (kts)', 0, 0);
+  ctx.restore();
+  ctx.restore();
+
+  // ── Determine spotlight ──
+  const spotKey = raceDomId(rd,'cAccel');
+  const spot = window._accelSpotlight[spotKey] || null;
+
+  // Draw order: muted lines first, spotlighted/featured last
+  const FEATURE = new Set(['77']); // user boat always emphasised when no explicit spotlight
+  const winner = (rd.l1Order && rd.l1Order[0]) || null;
+
+  function lineStyle(sail){
+    const base = reachRankColor(rd, sail);
+    if(spot){
+      return sail === spot
+        ? { color: base, width: 3, alpha: 'ff' }
+        : { color: base, width: 1.2, alpha: '22' };
+    }
+    // No spotlight: emphasise user boat + winner
+    if(FEATURE.has(sail)) return { color: base, width: 3, alpha: 'ff' };
+    if(sail === winner)   return { color: base, width: 2.4, alpha: 'cc' };
+    return { color: base, width: 1.4, alpha: '66' };
+  }
+
+  const drawOrder = sails.slice().sort((a,b)=>{
+    const sa = (spot ? a===spot : (FEATURE.has(a)||a===winner)) ? 1 : 0;
+    const sb = (spot ? b===spot : (FEATURE.has(b)||b===winner)) ? 1 : 0;
+    return sa - sb;
+  });
+
+  for(const sail of drawOrder){
+    const pts = series[sail]; if(!pts) continue;
+    const st = lineStyle(sail);
+    ctx.save();
+    ctx.strokeStyle = st.color + st.alpha;
+    ctx.lineWidth = st.width;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    let pen = false;
+    for(const [rel, kt] of pts){
+      if(kt == null){ pen = false; continue; }
+      const x = xOf(rel), y = yOf(kt);
+      if(!pen){ ctx.moveTo(x, y); pen = true; } else { ctx.lineTo(x, y); }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // store geometry for hit-testing on the legend (no canvas click needed)
+  rd._accelGeom = { series, xOf: null, vMax, T0, T1 };
+
+  // ── Build/refresh the clickable legend ──
+  const legEl = document.getElementById(raceDomId(rd,'accelLegend'));
+  if(legEl){
+    legEl.innerHTML = sails.map(sail => {
+      const col = reachRankColor(rd, sail);
+      const active = spot === sail;
+      const dim = spot && spot !== sail;
+      return `<button type="button" class="accelChip${active?' active':''}${dim?' dim':''}"
+        data-sail="${sail}" data-cid="${spotKey}"
+        style="--chipcol:${col}">
+        <span class="accelSw" style="background:${col}"></span>${sail}<span class="accelTeam">${TEAM_NAMES[sail]||''}</span>
+      </button>`;
+    }).join('');
+    // attach handlers (idempotent — innerHTML replace clears old ones)
+    legEl.querySelectorAll('.accelChip').forEach(btn => {
+      btn.onclick = () => {
+        const s = btn.getAttribute('data-sail');
+        const k = btn.getAttribute('data-cid');
+        window._accelSpotlight[k] = (window._accelSpotlight[k] === s) ? null : s;
+        drawAccelCurveR(rd);
+      };
+    });
+  }
 }
 
 function drawGunR(rd){
@@ -5146,7 +5317,7 @@ function selectRace(event, di, raceNum, guns, ri){
     document.querySelectorAll(`#raceContent${di} > div`).forEach(p=>p.style.display='none');
     existing.style.display='block';
     const rd=(event._races||[]).find(r=>r && r.raceNum===raceNum && (r._dayIdx===di || event._dayIdx===di));
-    if(rd){ requestAnimationFrame(()=>{ try{ const saved=saveGlobals(); setGlobals(rd); drawWindR(rd); drawCourseR(rd); if(rd.GUND?.length && rd.RC && rd.PIN) drawGunR(rd); if(rd.T50?.length && rd.RC && rd.PIN) drawT50R(rd); if(rd.RC && rd.PIN) initStartReplayR(rd); restoreGlobals(saved);}catch(e){ console.warn('revisit redraw failed', raceNum, e); } }); updateRaceTwsUi(rd); updateRaceTwdUi(rd); }
+    if(rd){ requestAnimationFrame(()=>{ try{ const saved=saveGlobals(); setGlobals(rd); drawWindR(rd); drawCourseR(rd); if(rd.GUND?.length && rd.RC && rd.PIN) drawGunR(rd); if(rd.T50?.length && rd.RC && rd.PIN) drawT50R(rd); if(rd.RC && rd.PIN) initStartReplayR(rd); if(Object.keys(rd.tracks||{}).length) drawAccelCurveR(rd); restoreGlobals(saved);}catch(e){ console.warn('revisit redraw failed', raceNum, e); } }); updateRaceTwsUi(rd); updateRaceTwdUi(rd); }
     syncBottomTwsControls();
     return;
   }
