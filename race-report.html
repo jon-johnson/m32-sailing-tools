@@ -1099,7 +1099,7 @@ function collectPolarObservationsFromRace(rd){
     for(let i=3;i<t.length-3;i++){
       const p=t[i], p0=t[i-3], p1=t[i+3];
       if(p.ts<rd.gunTs+15000 || p.ts>raceEnd-15000) continue;
-      const sog=p.sog*0.539957, sog0=(t[i-1].sog||0)*0.539957, sog1=(t[i+1].sog||0)*0.539957;
+      const sog=p.sog, sog0=(t[i-1].sog||0), sog1=(t[i+1].sog||0);
       if(sog<6 || sog>35) continue;
       const cog=brg(p0.lat,p0.lon,p1.lat,p1.lon);
       const turn=angDiff(brg(t[i-3].lat,t[i-3].lon,t[i-1].lat,t[i-1].lon), brg(t[i+1].lat,t[i+1].lon,t[i+3].lat,t[i+3].lon));
@@ -1168,7 +1168,7 @@ function collectReachObservationsFromRace(rd){
     let sumBsp = 0, sinSum = 0, cosSum = 0, n = 0;
     for(let i = 1; i < seg.length - 1; i++){
       const p = seg[i], p0 = seg[i-1], p1 = seg[i+1];
-      const bsp = p.sog * 0.539957;
+      const bsp = p.sog;
       if(bsp < 3 || bsp > 35) continue;
       const cog = brg(p0.lat, p0.lon, p1.lat, p1.lon);
       const relAngle = ((cog - rd.WF + 180 + 360) % 360) - 180;
@@ -1375,7 +1375,7 @@ const raceCache = {};
 // ─── MATH ───
 function hav(a,b,c,d){const dL=(c-a)*D2R,dO=(d-b)*D2R,x=Math.sin(dL/2)**2+Math.cos(a*D2R)*Math.cos(c*D2R)*Math.sin(dO/2)**2;return RE*2*Math.asin(Math.sqrt(x))}
 function brg(a,b,c,d){const dO=(d-b)*D2R,x=Math.sin(dO)*Math.cos(c*D2R),y=Math.cos(a*D2R)*Math.sin(c*D2R)-Math.sin(a*D2R)*Math.cos(c*D2R)*Math.cos(dO);return(Math.atan2(x,y)/D2R+360)%360}
-function vmgOf(ms,h,wf){return(ms*0.539957)*Math.cos(Math.abs(((h-wf+180)%360)-180)*D2R)}
+function vmgOf(ms,h,wf){return(ms)*Math.cos(Math.abs(((h-wf+180)%360)-180)*D2R)}
 function fmt(s){return`${Math.floor(s/60)}:${String(Math.round(s%60)).padStart(2,'0')}`}
 function card(d){const c=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];return c[Math.round(((d%360)+360)%360/22.5)%16]}
 
@@ -1545,7 +1545,7 @@ function detectBearAway(track, gunTs, cfg, relax){
 
   const hdgs  = smoothHeadings(seg.map(p=>p.hdg), cfg.SMOOTH_WIN);
   const times = seg.map(p => p.ts);
-  const sogs  = seg.map(p => p.sog * 0.539957);
+  const sogs  = seg.map(p => p.sog);
 
   // Compute instantaneous heading-change-rate (deg/sec) between adjacent samples
   const rates = [0];
@@ -1907,7 +1907,7 @@ function inferGybe(tracks, wf){
   for(const s of QUAL_BOATS){
     const t=tracks[s]; if(!t||t.length<200) continue;
     // Skip first 120s (reach leg) and cap at 12min (avoids final reach)
-    const dw=t.filter(p=>p.ts>_gun+120000&&p.ts<_gun+720000&&p.sog*0.539957>3);
+    const dw=t.filter(p=>p.ts>_gun+120000&&p.ts<_gun+720000&&p.sog>3);
     for(const p of dw){
       const h=p.hdg;
       // Port gybe: 50–130° (ddw - 5° to ddw - 85°)
@@ -2781,7 +2781,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
       const racePts = t.filter(p => p.ts >= gunTs + 60000 && p.ts <= raceEnd);
       let uwVMGs = [], dwVMGs = [];
       for(const p of racePts){
-        const sog = p.sog * 0.539957; // m/s → kts
+        const sog = p.sog; // SOG is already in knots
         if(sog < 2) continue;
         const twa = Math.abs(((p.hdg - WF + 180 + 360) % 360) - 180);
         const vmg = sog * Math.cos(twa * D2R);
@@ -2826,9 +2826,9 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
     const covered = pts.length > 1 ? pts[pts.length-1].ts - pts[0].ts : 0;
     const coverage = Math.min(1, covered / raceDur);
     // speed spikes: samples where SOG > 2× median
-    const sogs = pts.map(p=>p.sog*0.539957).sort((a,b)=>a-b);
+    const sogs = pts.map(p=>p.sog).sort((a,b)=>a-b);
     const medSog = sogs[Math.floor(sogs.length/2)] || 1;
-    const spikes = pts.filter(p => p.sog*0.539957 > medSog*2.5 && p.sog*0.539957 > 20).length;
+    const spikes = pts.filter(p => p.sog > medSog*2.5 && p.sog > 20).length;
     // score
     let score = 'HIGH';
     if(coverage < 0.5 || maxGap > 30000 || pts.length < 30) score = 'LOW';
@@ -2903,7 +2903,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
     let dist50 = 0;
     for(let i=1;i<pts50.length;i++) dist50 += hav(pts50[i-1].lat,pts50[i-1].lon,pts50[i].lat,pts50[i].lon);
     // Avg SOG gun→T+50
-    const sogs50 = pts50.map(p=>p.sog*0.539957);
+    const sogs50 = pts50.map(p=>p.sog);
     const sog50 = sogs50.length ? sogs50.reduce((a,b)=>a+b,0)/sogs50.length : null;
     // Heel: use gun→T+50 window
     const rollPts = pts50.filter(p=>p.roll!=null&&p.roll!==0);
@@ -2941,7 +2941,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
 
       // SIGNED distance at gun (negative = OCS)
       const distGun = distToLinePt(pGun, RC, PIN);
-      const sogGun  = pGun.sog * 0.539957;
+      const sogGun  = pGun.sog;
 
       // startExcluded: boat >100m from line at gun — not meaningfully in this start
       const startExcluded = Math.abs(distGun) > 100;
@@ -2953,7 +2953,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
       // Minimum speed in final 30s before gun (stall detection)
       const pre30spd = t.filter(p => p.ts >= gunTs - 30000 && p.ts <= gunTs);
       const minSpd30 = pre30spd.length
-        ? Math.min(...pre30spd.map(p => (p.sog||0) * 0.539957))
+        ? Math.min(...pre30spd.map(p => (p.sog||0)))
         : null;
 
       // Start position as percentage up the line
@@ -3004,7 +3004,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
       const reachEnd = reachTimes[sail] || (gunTs + 120000);
       const reachSeg = t.filter(p => p.ts >= gunTs && p.ts <= reachEnd);
       const avgReachSog = reachSeg.length >= 3
-        ? reachSeg.reduce((s,p) => s + p.sog*0.539957, 0) / reachSeg.length
+        ? reachSeg.reduce((s,p) => s + p.sog, 0) / reachSeg.length
         : null;
       let accel = null; // reused variable name — now means seconds to 95% of reach speed
       if(avgReachSog != null && avgReachSog > 1){
@@ -3012,7 +3012,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
         // Scan forward from gun using 3-point rolling average to avoid noise spikes
         const postGun = t.filter(p => p.ts >= gunTs && p.ts <= gunTs + 120000);
         for(let pi = 1; pi < postGun.length - 1; pi++){
-          const rollingSOG = (postGun[pi-1].sog + postGun[pi].sog + postGun[pi+1].sog) / 3 * 0.539957;
+          const rollingSOG = (postGun[pi-1].sog + postGun[pi].sog + postGun[pi+1].sog) / 3;
           if(rollingSOG >= target95){
             accel = (postGun[pi].ts - gunTs) / 1000; // seconds
             break;
@@ -3023,7 +3023,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
       // Avg approach speed T-30s → T-5s
       const approach = t.filter(p => p.ts >= gunTs-30000 && p.ts <= gunTs-5000);
       const avgSogApproach = approach.length
-        ? approach.reduce((s,p)=>s+p.sog*0.539957,0)/approach.length : null;
+        ? approach.reduce((s,p)=>s+p.sog,0)/approach.length : null;
 
       // OCS classification using signed distance
       // Check if official results has an OCS for this boat
@@ -3063,14 +3063,14 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
       // isOCS: telemetry status=1 is authoritative; DTL fallback if no telemetry OCS data
       const isOCS_tele = ocsFromTelemetry.has(sail);
       const isOCS_dtl  = dg < -DTL_OCS_M;
-      GUND.push({sail, lat:pGun.lat, lon:pGun.lon, hdg:pGun.hdg, sog:pGun.sog*0.539957, dist:dg,
+      GUND.push({sail, lat:pGun.lat, lon:pGun.lon, hdg:pGun.hdg, sog:pGun.sog, dist:dg,
         isOCS: isOCS_tele || isOCS_dtl,
         isOCS_tele, isOCS_dtl});
     }
     const p50 = ptAtTime ? ptAtTime(t, gunTs + 50000) : null;
     if(p50){
       const d50 = distToLine ? distToLine(p50.lat, p50.lon, RC.lat, RC.lon, PIN.lat, PIN.lon) : 0;
-      const avg50 = t.filter(p=>p.ts>=gunTs&&p.ts<=gunTs+50000).reduce((s,p,_,a)=>s+p.sog*0.539957/a.length,0);
+      const avg50 = t.filter(p=>p.ts>=gunTs&&p.ts<=gunTs+50000).reduce((s,p,_,a)=>s+p.sog/a.length,0);
       T50.push({sail, lat:p50.lat, lon:p50.lon, hdg:p50.hdg, avg:avg50, dist:d50}); // signed DTL at T+50
     }
   }
@@ -3536,7 +3536,7 @@ function drawAccelCurveR(rd){
     for(let rel = T0; rel <= T1 + 1e-6; rel += STEP){
       const p = interpTrackPoint(t, rd.gunTs + rel*1000, null);
       if(p){
-        const kt = (p.sog||0) * 0.539957;
+        const kt = (p.sog||0);
         pts.push([rel, kt]);
         if(kt > vMax) vMax = kt;
       } else {
@@ -5456,7 +5456,7 @@ function recomputeL1(rd){
     const pts50 = t.filter(p => p.ts >= gunTs && p.ts <= gunTs+50000);
     let dist50 = 0;
     for(let i=1;i<pts50.length;i++) dist50 += hav(pts50[i-1].lat,pts50[i-1].lon,pts50[i].lat,pts50[i].lon);
-    const sogs50 = pts50.map(p=>p.sog*0.539957);
+    const sogs50 = pts50.map(p=>p.sog);
     const sog50 = sogs50.length ? sogs50.reduce((a,b)=>a+b,0)/sogs50.length : null;
     const rollPts = pts50.filter(p=>p.roll!=null&&p.roll!==0);
     const heel = rollPts.length>3 ? rollPts.reduce((s,p)=>s+Math.abs(p.roll),0)/rollPts.length : null;
