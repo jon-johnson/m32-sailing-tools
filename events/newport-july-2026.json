@@ -1,4 +1,4 @@
-
+{
   "title": "M32 Newport Race Week & US Nationals 2026",
   "subtitle": "Newport, Rhode Island \u00b7 Jul 2026 \u00b7 EDT (UTC-4)",
   "fleet": {
@@ -88,6 +88,38 @@
           1784317800000
         ]
       ]
+    },
+    {
+      "id": "Yuqv4OaxQEvZbjKpAWVS",
+      "label": "DAY 2",
+      "date": "2026-07-18",
+      "tz": "EDT",
+      "tzOffset": -4,
+      "raceDay": 2,
+      "dayStart": 1784347200000,
+      "dayEnd": 1784433599999,
+      "knownGuns": [
+        [
+          1,
+          1784386980000
+        ],
+        [
+          2,
+          1784388660000
+        ],
+        [
+          3,
+          1784390460000
+        ],
+        [
+          4,
+          1784392380000
+        ],
+        [
+          5,
+          1784394000000
+        ]
+      ]
     }
   ],
   "officialResults": {
@@ -140,6 +172,7 @@
         "60": 8,
         "52": 7
       }
-    }
+    },
+    "1": {}
   }
 }
