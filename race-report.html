@@ -2685,12 +2685,20 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
   const rows = await fetchAllPages(event.id, gunTs - BEFORE_GUN, fetchEnd);
   progressEl && (progressEl.textContent = `Processing Race ${raceNum}… (${rows.length} rows)`);
 
+  // Per-day sail aliases: event.sailAliases = {"001":"60"} means telemetry sail 001
+  // is treated as boat 60 for this day (e.g. team sailing a spare hull).
+  // Raw rows matching an alias TARGET are dropped to avoid merging two hulls.
+  const SAIL_ALIAS = event.sailAliases || {};
+  const ALIAS_TARGETS = new Set(Object.values(SAIL_ALIAS));
+  const resolveSail = raw => SAIL_ALIAS[raw] || (ALIAS_TARGETS.has(raw) ? null : raw);
+
   // ── OCS from telemetry: status=1 in [gun-2s .. gun+15s] ──
   // RaceSense sets status=1 on any boat the system flags as OCS at the start.
   const ocsFromTelemetry = new Set();
   {
     for (const r of rows) {
-      const ts=r[0], role=r[7], sail=r[3], status=r[14];
+      const ts=r[0], role=r[7], sail=resolveSail(r[3]), status=r[14];
+      if(!sail) continue;
       if(ts < gunTs-2000 || ts > gunTs+15000) continue;
       if(role !== 'competitor') continue;
       if(EXCLUDED_BOATS.includes(sail)) continue;
@@ -2705,7 +2713,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
   for(const row of rows){
     const type = row[7];
     if(type === 'competitor'){
-      const name = row[3];
+      const name = resolveSail(row[3]);
       if(!name) continue;
       BOATS.add(name);
       if(EXCLUDED_BOATS.includes(name)) continue; // skip excluded boats
@@ -2879,7 +2887,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
   // Fallback: use 'finished' stage rows for any boats we didn't catch crossing
   for(const row of rows){
     if(row[7]==='competitor' && row[6]==='finished'){
-      const sail = row[3];
+      const sail = resolveSail(row[3]);
       if(sail && !finTimes[sail]) finTimes[sail] = row[0];
     }
   }
