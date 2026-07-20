@@ -3329,13 +3329,17 @@ function renderRacePanel(panelEl, rd){
       </div>
     </div>
 
-    <!-- Acceleration curves — full fleet, this race -->
+    <!-- Start curves — full fleet, this race -->
     <div class="mc" style="margin-bottom:8px">
       <div class="mh" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <span>ACCELERATION CURVES · SOG vs TIME-TO-GUN · T-30 TO T+30</span>
-        <span style="font-size:8px;color:var(--muted);font-weight:400">click a boat to spotlight · gun = T0</span>
+        <span>ACCELERATION · SOG vs TIME-TO-GUN · T-30 TO T+30</span>
+        <span style="font-size:8px;color:var(--muted);font-weight:400">click a boat below to spotlight · gun = T0</span>
       </div>
       <canvas id="${raceDomId(rd,'cAccel')}" style="width:100%;display:block"></canvas>
+      <div class="mh" style="margin-top:10px">DISTANCE TO LINE · signed metres · + = pre-start side</div>
+      <canvas id="${raceDomId(rd,'cDtl')}" style="width:100%;display:block"></canvas>
+      <div class="mh" style="margin-top:10px">TIME TO BURN · time-remaining − time-to-line at fleet clean pace (top-3 reach speed) · 0 at gun = perfectly timed</div>
+      <canvas id="${raceDomId(rd,'cTtl')}" style="width:100%;display:block"></canvas>
       <div id="${raceDomId(rd,'accelLegend')}" class="accelLegend"></div>
     </div>
 
@@ -3516,148 +3520,174 @@ function gunMapBoatColor(rd, sail){
 window._accelSpotlight = window._accelSpotlight || {};
 
 function drawAccelCurveR(rd){
-  const cid = raceDomId(rd,'cAccel');
-  const el = document.getElementById(cid);
-  if(!el) return;
-  const W = el.offsetWidth || el.parentElement?.offsetWidth || 800;
-  if(!W) return;
-  const H = Math.max(300, Math.min(440, Math.round(W*0.46)));
-  const {ctx} = cvs(cid, H);
-  cbg(ctx, W, H);
-
-  // Time + speed windows
-  const T0 = -30, T1 = 30;            // seconds relative to gun
-  const padL = 44, padR = 14, padT = 16, padB = 30;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-
-  // Gather per-boat SOG samples and find max speed for Y-scale
-  const sails = Object.keys(rd.tracks||{})
-    .filter(s => !EXCLUDED_BOATS.includes(s) && isVisibleAtGunReplay(rd, s));
-  if(!sails.length){ return; }
-
-  const STEP = 0.5; // sample every 0.5s
-  const series = {};
-  let vMax = 6;
-  for(const sail of sails){
-    const t = rd.tracks[sail]; if(!t) continue;
-    const pts = [];
-    for(let rel = T0; rel <= T1 + 1e-6; rel += STEP){
-      const p = interpTrackPoint(t, rd.gunTs + rel*1000, null);
-      if(p){
-        const kt = (p.sog||0);
-        pts.push([rel, kt]);
-        if(kt > vMax) vMax = kt;
-      } else {
-        pts.push([rel, null]);
-      }
-    }
-    series[sail] = pts;
-  }
-  vMax = Math.ceil(vMax/2)*2; // round up to even
-
-  const xOf = rel => padL + ((rel - T0)/(T1 - T0)) * plotW;
-  const yOf = kt  => padT + plotH - (kt / vMax) * plotH;
-
-  // ── Grid + axes ──
-  ctx.save();
-  ctx.strokeStyle = 'rgba(120,170,210,0.10)';
-  ctx.fillStyle   = 'rgba(150,190,220,0.55)';
-  ctx.font = '9px "Share Tech Mono", monospace';
-  ctx.lineWidth = 1;
-  // horizontal speed gridlines
-  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-  for(let v = 0; v <= vMax; v += 2){
-    const y = yOf(v);
-    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
-    ctx.fillText(v + '', padL - 6, y);
-  }
-  // vertical time gridlines every 5s
-  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  for(let rel = T0; rel <= T1 + 1e-6; rel += 5){
-    const x = xOf(rel);
-    ctx.strokeStyle = rel === 0 ? 'rgba(250,204,21,0.55)' : 'rgba(120,170,210,0.10)';
-    ctx.lineWidth = rel === 0 ? 1.6 : 1;
-    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
-    const lbl = rel === 0 ? 'GUN' : (rel > 0 ? '+' + rel : '' + rel);
-    ctx.fillStyle = rel === 0 ? 'rgba(250,204,21,0.9)' : 'rgba(150,190,220,0.55)';
-    ctx.fillText(lbl, x, padT + plotH + 6);
-  }
-  // Y axis label
-  ctx.save();
-  ctx.translate(11, padT + plotH/2); ctx.rotate(-Math.PI/2);
-  ctx.fillStyle = 'rgba(150,190,220,0.6)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '8px Orbitron, sans-serif';
-  ctx.fillText('SOG (kts)', 0, 0);
-  ctx.restore();
-  ctx.restore();
-
-  // ── Determine spotlight ──
   const spotKey = raceDomId(rd,'cAccel');
   const spot = window._accelSpotlight[spotKey] || null;
+  const sails = Object.keys(rd.tracks||{})
+    .filter(s => !EXCLUDED_BOATS.includes(s) && isVisibleAtGunReplay(rd, s));
+  if(!sails.length) return;
 
-  // Draw order: muted lines first, spotlighted/featured last
-  const FEATURE = new Set(['77']); // user boat always emphasised when no explicit spotlight
   const winner = (rd.l1Order && rd.l1Order[0]) || null;
-
+  const FEATURE = new Set(['77']);
   function lineStyle(sail){
     const base = reachRankColor(rd, sail);
-    if(spot){
-      return sail === spot
-        ? { color: base, width: 3, alpha: 'ff' }
-        : { color: base, width: 1.2, alpha: '22' };
-    }
-    // No spotlight: emphasise user boat + winner
-    if(FEATURE.has(sail)) return { color: base, width: 3, alpha: 'ff' };
-    if(sail === winner)   return { color: base, width: 2.4, alpha: 'cc' };
-    return { color: base, width: 1.4, alpha: '66' };
+    if(spot) return sail === spot ? {c:base,w:3,a:'ff'} : {c:base,w:1.2,a:'22'};
+    if(FEATURE.has(sail)) return {c:base,w:3,a:'ff'};
+    if(sail === winner)   return {c:base,w:2.4,a:'cc'};
+    return {c:base,w:1.4,a:'66'};
   }
-
   const drawOrder = sails.slice().sort((a,b)=>{
-    const sa = (spot ? a===spot : (FEATURE.has(a)||a===winner)) ? 1 : 0;
-    const sb = (spot ? b===spot : (FEATURE.has(b)||b===winner)) ? 1 : 0;
-    return sa - sb;
+    const sa=(spot?a===spot:(FEATURE.has(a)||a===winner))?1:0;
+    const sb=(spot?b===spot:(FEATURE.has(b)||b===winner))?1:0;
+    return sa-sb;
   });
 
-  for(const sail of drawOrder){
-    const pts = series[sail]; if(!pts) continue;
-    const st = lineStyle(sail);
-    ctx.save();
-    ctx.strokeStyle = st.color + st.alpha;
-    ctx.lineWidth = st.width;
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.beginPath();
-    let pen = false;
-    for(const [rel, kt] of pts){
-      if(kt == null){ pen = false; continue; }
-      const x = xOf(rel), y = yOf(kt);
-      if(!pen){ ctx.moveTo(x, y); pen = true; } else { ctx.lineTo(x, y); }
+  // ── Shared sampling: SOG (kts) + signed DTL (m) per boat ──
+  const STEP = 0.5;
+  const sogSeries = {}, dtlSeries = {};
+  const haveLine = !!(rd.RC && rd.PIN);
+  for(const sail of sails){
+    const t = rd.tracks[sail]; if(!t) continue;
+    const sog = [], dtl = [];
+    for(let rel = -30; rel <= 30 + 1e-6; rel += STEP){
+      const p = interpTrackPoint(t, rd.gunTs + rel*1000, null);
+      if(p){
+        sog.push([rel, (p.sog||0)]);
+        dtl.push([rel, haveLine ? distToLinePt(p, rd.RC, rd.PIN) : null]);
+      } else { sog.push([rel, null]); dtl.push([rel, null]); }
     }
-    ctx.stroke();
-    ctx.restore();
+    sogSeries[sail] = sog; dtlSeries[sail] = dtl;
   }
 
-  // store geometry for hit-testing on the legend (no canvas click needed)
-  rd._accelGeom = { series, xOf: null, vMax, T0, T1 };
+  // ── Fleet speed potential: mean of the top-3 boats' 95th-pct SOG in gun→+60s.
+  // Using the fastest (clean-lane) boats avoids a rolled boat's dirty-air speeds
+  // depressing its own benchmark and flattering a bad start.
+  let fleetPot = 15;
+  {
+    const per = [];
+    for(const sail of sails){
+      const t = rd.tracks[sail]; if(!t) continue;
+      const v = t.filter(p => p.ts >= rd.gunTs && p.ts <= rd.gunTs + 60000)
+                 .map(p => p.sog||0).sort((a,b)=>a-b);
+      if(v.length >= 8) per.push(v[Math.floor(v.length*0.95)]);
+    }
+    if(per.length){
+      per.sort((a,b)=>b-a);
+      const top = per.slice(0, Math.min(3, per.length));
+      fleetPot = Math.max(8, top.reduce((s,v)=>s+v,0)/top.length);
+    }
+  }
+  const vpot = {};
+  for(const sail of sails) vpot[sail] = fleetPot;
 
-  // ── Build/refresh the clickable legend ──
+  // ── Generic axes + polyline chart renderer ──
+  function chart(cid, opts){
+    const el = document.getElementById(cid); if(!el) return;
+    const W = el.offsetWidth || el.parentElement?.offsetWidth || 800; if(!W) return;
+    const H = opts.height;
+    const {ctx} = cvs(cid, H); cbg(ctx, W, H);
+    const padL=46, padR=14, padT=12, padB=26;
+    const plotW=W-padL-padR, plotH=H-padT-padB;
+    const [x0,x1]=opts.xRange, [y0,y1]=opts.yRange;
+    const xOf=v=>padL+((v-x0)/(x1-x0))*plotW;
+    const yOf=v=>padT+plotH-((v-y0)/(y1-y0))*plotH;
+    ctx.save();
+    ctx.font='9px "Share Tech Mono", monospace';
+    // horizontal gridlines
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    for(const v of opts.yTicks){
+      const y=yOf(v);
+      const zero = opts.zeroLine!=null && Math.abs(v-opts.zeroLine)<1e-9;
+      ctx.strokeStyle = zero ? 'rgba(0,204,255,0.5)' : 'rgba(120,170,210,0.10)';
+      ctx.lineWidth = zero ? 1.4 : 1;
+      ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+      ctx.fillStyle = zero ? 'rgba(0,204,255,0.85)' : 'rgba(150,190,220,0.55)';
+      ctx.fillText(opts.yFmt(v), padL-6, y);
+    }
+    // vertical time gridlines every 5s + gun
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    for(let rel=x0; rel<=x1+1e-6; rel+=5){
+      const x=xOf(rel);
+      ctx.strokeStyle = rel===0 ? 'rgba(250,204,21,0.55)' : 'rgba(120,170,210,0.10)';
+      ctx.lineWidth = rel===0 ? 1.6 : 1;
+      ctx.beginPath(); ctx.moveTo(x,padT); ctx.lineTo(x,padT+plotH); ctx.stroke();
+      ctx.fillStyle = rel===0 ? 'rgba(250,204,21,0.9)' : 'rgba(150,190,220,0.55)';
+      ctx.fillText(rel===0?'GUN':(rel>0?'+'+rel:''+rel), x, padT+plotH+5);
+    }
+    // Y label
+    ctx.save(); ctx.translate(11,padT+plotH/2); ctx.rotate(-Math.PI/2);
+    ctx.fillStyle='rgba(150,190,220,0.6)'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='8px Orbitron, sans-serif'; ctx.fillText(opts.yLabel,0,0); ctx.restore();
+    ctx.restore();
+    // series
+    for(const sail of drawOrder){
+      const pts = opts.series[sail]; if(!pts) continue;
+      const st = lineStyle(sail);
+      ctx.save();
+      ctx.strokeStyle = st.c + st.a; ctx.lineWidth = st.w;
+      ctx.lineJoin='round'; ctx.lineCap='round';
+      ctx.beginPath(); let pen=false;
+      for(const [rel,v] of pts){
+        if(v==null || rel<x0-1e-9 || rel>x1+1e-9){ pen=false; continue; }
+        const vc = Math.max(y0, Math.min(y1, v));
+        const x=xOf(rel), y=yOf(vc);
+        if(!pen){ ctx.moveTo(x,y); pen=true; } else ctx.lineTo(x,y);
+      }
+      ctx.stroke(); ctx.restore();
+    }
+  }
+
+  // ── Chart 1: Acceleration (SOG kts) ──
+  {
+    let vMax=6;
+    for(const s of sails) for(const [,v] of sogSeries[s]||[]) if(v!=null&&v>vMax) vMax=v;
+    vMax=Math.ceil(vMax/2)*2;
+    const ticks=[]; for(let v=0;v<=vMax;v+=2) ticks.push(v);
+    chart(raceDomId(rd,'cAccel'), {height:300, xRange:[-30,30], yRange:[0,vMax],
+      yTicks:ticks, yFmt:v=>''+v, yLabel:'SOG (kts)', zeroLine:null, series:sogSeries});
+  }
+
+  // ── Chart 2: DTL (signed metres, + = pre-start side) ──
+  if(haveLine){
+    let dMax=40;
+    for(const s of sails) for(const [rel,v] of dtlSeries[s]||[])
+      if(v!=null && rel<=5 && v>dMax) dMax=v;
+    dMax=Math.min(200, Math.ceil(dMax/25)*25);
+    const ticks=[]; for(let v=-25;v<=dMax;v+=25) ticks.push(v);
+    chart(raceDomId(rd,'cDtl'), {height:260, xRange:[-30,15], yRange:[-25,dMax],
+      yTicks:ticks, yFmt:v=>v+'m', yLabel:'DTL (m)', zeroLine:0, series:dtlSeries});
+  }
+
+  // ── Chart 3: Time to burn = time-remaining − DTL / Vpot ──
+  if(haveLine){
+    const burnSeries={};
+    for(const sail of sails){
+      const vms = vpot[sail]*0.514444; // kts → m/s
+      burnSeries[sail]=(dtlSeries[sail]||[]).map(([rel,d])=>{
+        if(d==null||rel>0) return [rel,null];
+        const ttl=Math.max(0,d)/vms;
+        return [rel, (-rel) - ttl];
+      });
+    }
+    const ticks=[-20,-15,-10,-5,0,5,10,15,20];
+    chart(raceDomId(rd,'cTtl'), {height:260, xRange:[-30,0], yRange:[-20,20],
+      yTicks:ticks, yFmt:v=>(v>0?'+':'')+v+'s', yLabel:'BURN (s)', zeroLine:0, series:burnSeries});
+  }
+
+  // ── Legend (shared, redraws all three) ──
   const legEl = document.getElementById(raceDomId(rd,'accelLegend'));
   if(legEl){
-    legEl.innerHTML = sails.map(sail => {
+    legEl.innerHTML = sails.map(sail=>{
       const col = reachRankColor(rd, sail);
-      const active = spot === sail;
-      const dim = spot && spot !== sail;
+      const active = spot===sail, dim = spot && spot!==sail;
       return `<button type="button" class="accelChip${active?' active':''}${dim?' dim':''}"
-        data-sail="${sail}" data-cid="${spotKey}"
-        style="--chipcol:${col}">
+        data-sail="${sail}" style="--chipcol:${col}">
         <span class="accelSw" style="background:${col}"></span>${sail}<span class="accelTeam">${TEAM_NAMES[sail]||''}</span>
       </button>`;
     }).join('');
-    // attach handlers (idempotent — innerHTML replace clears old ones)
-    legEl.querySelectorAll('.accelChip').forEach(btn => {
-      btn.onclick = () => {
-        const s = btn.getAttribute('data-sail');
-        const k = btn.getAttribute('data-cid');
-        window._accelSpotlight[k] = (window._accelSpotlight[k] === s) ? null : s;
+    legEl.querySelectorAll('.accelChip').forEach(btn=>{
+      btn.onclick = ()=>{
+        const s=btn.getAttribute('data-sail');
+        window._accelSpotlight[spotKey] = (window._accelSpotlight[spotKey]===s)?null:s;
         drawAccelCurveR(rd);
       };
     });
