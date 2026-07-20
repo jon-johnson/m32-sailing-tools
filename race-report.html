@@ -3338,7 +3338,7 @@ function renderRacePanel(panelEl, rd){
       <canvas id="${raceDomId(rd,'cAccel')}" style="width:100%;display:block"></canvas>
       <div class="mh" style="margin-top:10px">DISTANCE TO LINE · signed metres · + = pre-start side</div>
       <canvas id="${raceDomId(rd,'cDtl')}" style="width:100%;display:block"></canvas>
-      <div class="mh" style="margin-top:10px">TIME TO BURN · time-remaining − time-to-line at fleet clean pace (top-3 reach speed) · 0 at gun = perfectly timed</div>
+      <div class="mh" style="margin-top:10px">TIME TO BURN · accel-aware time-to-line vs fleet clean pace (top-3) · 0 at gun = perfectly timed</div>
       <canvas id="${raceDomId(rd,'cTtl')}" style="width:100%;display:block"></canvas>
       <div id="${raceDomId(rd,'accelLegend')}" class="accelLegend"></div>
     </div>
@@ -3562,18 +3562,37 @@ function drawAccelCurveR(rd){
   // Using the fastest (clean-lane) boats avoids a rolled boat's dirty-air speeds
   // depressing its own benchmark and flattering a bad start.
   let fleetPot = 15;
+  let fleetAccel = 0.6; // m/s² fallback
   {
     const per = [];
     for(const sail of sails){
       const t = rd.tracks[sail]; if(!t) continue;
       const v = t.filter(p => p.ts >= rd.gunTs && p.ts <= rd.gunTs + 60000)
                  .map(p => p.sog||0).sort((a,b)=>a-b);
-      if(v.length >= 8) per.push(v[Math.floor(v.length*0.95)]);
+      if(v.length >= 8) per.push([sail, v[Math.floor(v.length*0.95)]]);
     }
     if(per.length){
-      per.sort((a,b)=>b-a);
+      per.sort((a,b)=>b[1]-a[1]);
       const top = per.slice(0, Math.min(3, per.length));
-      fleetPot = Math.max(8, top.reduce((s,v)=>s+v,0)/top.length);
+      fleetPot = Math.max(8, top.reduce((s,x)=>s+x[1],0)/top.length);
+      // Fleet acceleration: median of the same top boats' steepest sustained
+      // 5s SOG build between T-20 and T+10 (kts/s → m/s²).
+      const grads = [];
+      for(const [sail] of top){
+        const s = sogSeries[sail]; if(!s) continue;
+        let best = 0;
+        for(let k = 0; k + 10 < s.length; k++){
+          const [r0,v0] = s[k], [r1,v1] = s[k+10];   // 10 samples = 5s at 0.5s step
+          if(v0==null || v1==null || r0 < -20 || r1 > 10) continue;
+          best = Math.max(best, (v1 - v0) / 5);
+        }
+        if(best > 0) grads.push(best);
+      }
+      if(grads.length){
+        grads.sort((a,b)=>a-b);
+        const medKtsPerS = grads[Math.floor(grads.length/2)];
+        fleetAccel = Math.min(2.0, Math.max(0.2, medKtsPerS * 0.514444));
+      }
     }
   }
   const vpot = {};
@@ -3660,11 +3679,26 @@ function drawAccelCurveR(rd){
   // ── Chart 3: Time to burn = time-remaining − DTL / Vpot ──
   if(haveLine){
     const burnSeries={};
+    // Two-phase kinematic time-to-line: accelerate from current SOG to fleet
+    // potential at fleetAccel, then cruise. Honest about parked boats.
+    function kinTTL(D, vNowMs, Vms, a){
+      if(D <= 0) return 0;
+      if(vNowMs >= Vms) return D / vNowMs;
+      const t1 = (Vms - vNowMs) / a;
+      const d1 = vNowMs*t1 + 0.5*a*t1*t1;
+      if(d1 >= D){
+        return (-vNowMs + Math.sqrt(vNowMs*vNowMs + 2*a*D)) / a;
+      }
+      return t1 + (D - d1) / Vms;
+    }
     for(const sail of sails){
-      const vms = vpot[sail]*0.514444; // kts → m/s
-      burnSeries[sail]=(dtlSeries[sail]||[]).map(([rel,d])=>{
+      const Vms = vpot[sail]*0.514444;
+      const sog = sogSeries[sail]||[];
+      burnSeries[sail]=(dtlSeries[sail]||[]).map(([rel,d],i)=>{
         if(d==null||rel>0) return [rel,null];
-        const ttl=Math.max(0,d)/vms;
+        const vKts = sog[i] ? sog[i][1] : null;
+        const vNowMs = Math.max(0, (vKts||0)) * 0.514444;
+        const ttl = kinTTL(Math.max(0,d), vNowMs, Vms, fleetAccel);
         return [rel, (-rel) - ttl];
       });
     }
