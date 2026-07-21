@@ -3340,6 +3340,10 @@ function renderRacePanel(panelEl, rd){
       <canvas id="${raceDomId(rd,'cDtl')}" style="width:100%;display:block"></canvas>
       <div class="mh" style="margin-top:10px">TIME TO BURN · accel-aware time-to-line vs fleet clean pace (top-3) · 0 at gun = perfectly timed</div>
       <canvas id="${raceDomId(rd,'cTtl')}" style="width:100%;display:block"></canvas>
+      <div id="${raceDomId(rd,'heelWrap')}" style="display:none">
+        <div class="mh" style="margin-top:10px">HEEL · onboard VKX attitude · + = stbd heel</div>
+        <canvas id="${raceDomId(rd,'cHeel')}" style="width:100%;display:block"></canvas>
+      </div>
       <div id="${raceDomId(rd,'accelLegend')}" class="accelLegend"></div>
     </div>
 
@@ -3541,6 +3545,35 @@ function drawAccelCurveR(rd){
     return sa-sb;
   });
 
+  // ── VKX onboard telemetry overlay (per-day config: event.vkxTracks) ──
+  const vkxCfg = (rd.event && rd.event.vkxTracks) || null;
+  if(vkxCfg && !rd._vkxLoad){
+    rd._vkxLoad = 'pending';
+    Promise.all(Object.entries(vkxCfg).map(([sail,url]) =>
+      fetch(url).then(r=>r.ok?r.json():null).then(j=>[sail,j]).catch(()=>null)
+    )).then(list=>{
+      rd._vkx = {};
+      for(const e of list){
+        if(!e || !e[1]) continue;
+        const [sail, j] = e;
+        const race = (j.races||[]).find(rc => Math.abs(rc.gun - rd.gunTs) < 60000);
+        if(race && race.pts && race.pts.length) rd._vkx[sail] = race.pts;
+      }
+      rd._vkxLoad = 'done';
+      drawAccelCurveR(rd);
+    });
+  }
+  // Interp helper over vkx pts [[ts,lat,lon,sogKts,heel,pitch],...]
+  function vkxAt(pts, t){
+    if(!pts || t < pts[0][0] || t > pts[pts.length-1][0]) return null;
+    let lo=0, hi=pts.length-1;
+    while(lo<=hi){ const m=(lo+hi)>>1; if(pts[m][0]<t) lo=m+1; else hi=m-1; }
+    const i=Math.max(1,lo), a=pts[i-1], b=pts[i]||a;
+    const f=(b[0]-a[0])>0 ? (t-a[0])/(b[0]-a[0]) : 0;
+    const mix=(u,v)=>(u==null||v==null)?null:u+(v-u)*f;
+    return {lat:mix(a[1],b[1]), lon:mix(a[2],b[2]), sog:mix(a[3],b[3]), heel:mix(a[4],b[4])};
+  }
+
   // ── Shared sampling: SOG (kts) + signed DTL (m) per boat ──
   const STEP = 0.5;
   const sogSeries = {}, dtlSeries = {};
@@ -3557,6 +3590,23 @@ function drawAccelCurveR(rd){
     }
     sogSeries[sail] = sog; dtlSeries[sail] = dtl;
   }
+  // VKX overlay series (dashed): sog, dtl, heel
+  const vkxSog={}, vkxDtl={}, vkxHeel={};
+  for(const sail of Object.keys(rd._vkx||{})){
+    if(!sails.includes(sail)) continue;
+    const pts = rd._vkx[sail];
+    const s=[], d=[], h=[];
+    for(let rel=-30; rel<=30+1e-6; rel+=STEP){
+      const p = vkxAt(pts, rd.gunTs + rel*1000);
+      if(p){
+        s.push([rel, p.sog]);
+        d.push([rel, haveLine && p.lat!=null ? distToLinePt(p, rd.RC, rd.PIN) : null]);
+        h.push([rel, p.heel]);
+      } else { s.push([rel,null]); d.push([rel,null]); h.push([rel,null]); }
+    }
+    vkxSog[sail]=s; vkxDtl[sail]=d; vkxHeel[sail]=h;
+  }
+  const hasVkx = Object.keys(vkxSog).length > 0;
 
   // ── Fleet speed potential: mean of the top-3 boats' 95th-pct SOG in gun→+60s.
   // Using the fastest (clean-lane) boats avoids a rolled boat's dirty-air speeds
@@ -3653,6 +3703,25 @@ function drawAccelCurveR(rd){
       }
       ctx.stroke(); ctx.restore();
     }
+    // dashed overlay series (VKX)
+    if(opts.dash){
+      for(const sail of drawOrder){
+        const pts = opts.dash[sail]; if(!pts) continue;
+        const st = lineStyle(sail);
+        ctx.save();
+        ctx.strokeStyle = st.c + st.a; ctx.lineWidth = Math.max(1.6, st.w*0.8);
+        ctx.setLineDash([6,4]);
+        ctx.lineJoin='round'; ctx.lineCap='round';
+        ctx.beginPath(); let pen=false;
+        for(const [rel,v] of pts){
+          if(v==null || rel<x0-1e-9 || rel>x1+1e-9){ pen=false; continue; }
+          const vc = Math.max(y0, Math.min(y1, v));
+          const x=xOf(rel), y=yOf(vc);
+          if(!pen){ ctx.moveTo(x,y); pen=true; } else ctx.lineTo(x,y);
+        }
+        ctx.stroke(); ctx.restore();
+      }
+    }
   }
 
   // ── Chart 1: Acceleration (SOG kts) ──
@@ -3662,7 +3731,7 @@ function drawAccelCurveR(rd){
     vMax=Math.ceil(vMax/2)*2;
     const ticks=[]; for(let v=0;v<=vMax;v+=2) ticks.push(v);
     chart(raceDomId(rd,'cAccel'), {height:300, xRange:[-30,30], yRange:[0,vMax],
-      yTicks:ticks, yFmt:v=>''+v, yLabel:'SOG (kts)', zeroLine:null, series:sogSeries});
+      yTicks:ticks, yFmt:v=>''+v, yLabel:'SOG (kts)', zeroLine:null, series:sogSeries, dash:hasVkx?vkxSog:null});
   }
 
   // ── Chart 2: DTL (signed metres, + = pre-start side) ──
@@ -3673,7 +3742,7 @@ function drawAccelCurveR(rd){
     dMax=Math.min(200, Math.ceil(dMax/25)*25);
     const ticks=[]; for(let v=-25;v<=dMax;v+=25) ticks.push(v);
     chart(raceDomId(rd,'cDtl'), {height:260, xRange:[-30,15], yRange:[-25,dMax],
-      yTicks:ticks, yFmt:v=>v+'m', yLabel:'DTL (m)', zeroLine:0, series:dtlSeries});
+      yTicks:ticks, yFmt:v=>v+'m', yLabel:'DTL (m)', zeroLine:0, series:dtlSeries, dash:hasVkx?vkxDtl:null});
   }
 
   // ── Chart 3: Time to burn = time-remaining − DTL / Vpot ──
@@ -3702,9 +3771,33 @@ function drawAccelCurveR(rd){
         return [rel, (-rel) - ttl];
       });
     }
+    const vkxBurn={};
+    for(const sail of Object.keys(vkxSog)){
+      const Vms = vpot[sail]*0.514444;
+      const sog = vkxSog[sail]||[];
+      vkxBurn[sail]=(vkxDtl[sail]||[]).map(([rel,d],i)=>{
+        if(d==null||rel>0) return [rel,null];
+        const vNowMs = Math.max(0,(sog[i]?sog[i][1]:0)||0)*0.514444;
+        return [rel, (-rel) - kinTTL(Math.max(0,d), vNowMs, Vms, fleetAccel)];
+      });
+    }
     const ticks=[-20,-15,-10,-5,0,5,10,15,20];
     chart(raceDomId(rd,'cTtl'), {height:260, xRange:[-30,0], yRange:[-20,20],
-      yTicks:ticks, yFmt:v=>(v>0?'+':'')+v+'s', yLabel:'BURN (s)', zeroLine:0, series:burnSeries});
+      yTicks:ticks, yFmt:v=>(v>0?'+':'')+v+'s', yLabel:'BURN (s)', zeroLine:0, series:burnSeries, dash:hasVkx?vkxBurn:null});
+  }
+
+  // ── Chart 4: Heel (VKX only) ──
+  {
+    const wrap = document.getElementById(raceDomId(rd,'heelWrap'));
+    if(wrap) wrap.style.display = hasVkx ? '' : 'none';
+    if(hasVkx){
+      let hMax=10;
+      for(const s of Object.keys(vkxHeel)) for(const [,v] of vkxHeel[s]) if(v!=null&&Math.abs(v)>hMax) hMax=Math.abs(v);
+      hMax=Math.ceil(hMax/5)*5;
+      const ticks=[]; for(let v=-hMax;v<=hMax;v+=5) ticks.push(v);
+      chart(raceDomId(rd,'cHeel'), {height:220, xRange:[-30,30], yRange:[-hMax,hMax],
+        yTicks:ticks, yFmt:v=>v+'\u00b0', yLabel:'HEEL (\u00b0)', zeroLine:0, series:{}, dash:vkxHeel});
+    }
   }
 
   // ── Legend (shared, redraws all three) ──
@@ -3717,7 +3810,7 @@ function drawAccelCurveR(rd){
         data-sail="${sail}" style="--chipcol:${col}">
         <span class="accelSw" style="background:${col}"></span>${sail}<span class="accelTeam">${TEAM_NAMES[sail]||''}</span>
       </button>`;
-    }).join('');
+    }).join('') + (hasVkx ? `<span style="font:400 8px 'Share Tech Mono',monospace;color:var(--muted);align-self:center;margin-left:6px">&#8212; solid RaceSense &nbsp;&#183;&nbsp; - - onboard VKX</span>` : '');
     legEl.querySelectorAll('.accelChip').forEach(btn=>{
       btn.onclick = ()=>{
         const s=btn.getAttribute('data-sail');
