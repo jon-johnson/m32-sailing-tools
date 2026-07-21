@@ -2127,6 +2127,38 @@ function drawGun(mpp_ref){
   ctx.fillText(`${slB.toFixed(1)}° (RC→Pin)`,W/2,H-10);ctx.restore();
   drawSL(ctx,rx,ry,px,py,false);
 
+  // ── Phase 3: VKX onboard track overlay (dashed), gun-30s → gun+30s ──
+  if(rd._vkx){
+    for(const [sail, pts] of Object.entries(rd._vkx)){
+      if(!pts || !pts.length) continue;
+      const seg = pts.filter(p => p[0] >= gunTs-30000 && p[0] <= gunTs+30000);
+      if(seg.length < 2) continue;
+      const col = (typeof reachRankColor==='function') ? reachRankColor(rd, sail) : '#fff';
+      ctx.save();
+      ctx.strokeStyle = col + 'cc'; ctx.lineWidth = 2; ctx.setLineDash([5,4]);
+      ctx.lineJoin='round'; ctx.lineCap='round';
+      ctx.beginPath();
+      seg.forEach((p,i)=>{
+        const m = toM(p[1], p[2]); const rr = r(m.x, m.y);
+        const X = tX(rr.rx), Y = tY(rr.ry);
+        if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+      });
+      ctx.stroke();
+      // position at gun
+      let best=seg[0];
+      for(const p of seg) if(Math.abs(p[0]-gunTs) < Math.abs(best[0]-gunTs)) best=p;
+      const bm=toM(best[1],best[2]), br_=r(bm.x,bm.y);
+      ctx.setLineDash([]);
+      ctx.fillStyle=col; ctx.beginPath();
+      ctx.arc(tX(br_.rx), tY(br_.ry), 3.5, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.fillStyle='rgba(150,190,220,0.6)'; ctx.font="8px 'Share Tech Mono', monospace";
+    ctx.textAlign='left'; ctx.fillText('- - - VKX onboard track', 8, 14);
+    ctx.restore();
+  }
+
   const optimalStart = computeOptimalStartR(rd);
   if(optimalStart){
     const {times,best,minT,tRange} = optimalStart;
@@ -3344,6 +3376,7 @@ function renderRacePanel(panelEl, rd){
         <div class="mh" style="margin-top:10px">HEEL · onboard VKX attitude · + = stbd heel</div>
         <canvas id="${raceDomId(rd,'cHeel')}" style="width:100%;display:block"></canvas>
       </div>
+      <div id="${raceDomId(rd,'vkxCmp')}" style="display:none"></div>
       <div id="${raceDomId(rd,'accelLegend')}" class="accelLegend"></div>
     </div>
 
@@ -3546,11 +3579,21 @@ function drawAccelCurveR(rd){
   });
 
   // ── VKX onboard telemetry overlay (per-day config: event.vkxTracks) ──
-  const vkxCfg = (rd.event && rd.event.vkxTracks) || null;
+  // Resolve config from rd.event, falling back to EVENTS by day index
+  // (some rd objects carry only a stub event).
+  const _di = (rd.event && rd.event._dayIdx != null) ? rd.event._dayIdx
+            : (rd._dayIdx != null ? rd._dayIdx : 0);
+  const vkxCfg = (rd.event && rd.event.vkxTracks)
+              || (typeof EVENTS !== 'undefined' && EVENTS[_di] && EVENTS[_di].vkxTracks)
+              || null;
+  if(!rd._vkxLoad) console.log('[VKX] race', rd.raceNum, 'day', _di, 'cfg:', vkxCfg);
   if(vkxCfg && !rd._vkxLoad){
     rd._vkxLoad = 'pending';
     Promise.all(Object.entries(vkxCfg).map(([sail,url]) =>
-      fetch(url).then(r=>r.ok?r.json():null).then(j=>[sail,j]).catch(()=>null)
+      fetch(url)
+        .then(r=>{ if(!r.ok) console.warn('[VKX] fetch failed', url, r.status); return r.ok?r.json():null; })
+        .then(j=>[sail,j])
+        .catch(e=>{ console.warn('[VKX] fetch error', url, e.message); return null; })
     )).then(list=>{
       rd._vkx = {};
       for(const e of list){
@@ -3558,9 +3601,14 @@ function drawAccelCurveR(rd){
         const [sail, j] = e;
         const race = (j.races||[]).find(rc => Math.abs(rc.gun - rd.gunTs) < 60000);
         if(race && race.pts && race.pts.length) rd._vkx[sail] = race.pts;
+        else console.warn('[VKX] no race match for sail', sail, 'gunTs', rd.gunTs,
+                          'file guns', (j.races||[]).map(r=>r.gun));
       }
+      console.log('[VKX] race', rd.raceNum, 'loaded sails:', Object.keys(rd._vkx),
+                  '| visible sails:', sails);
       rd._vkxLoad = 'done';
       drawAccelCurveR(rd);
+      try { if(rd.GUND?.length && rd.RC && rd.PIN) drawGunR(rd); } catch(e){}
     });
   }
   // Interp helper over vkx pts [[ts,lat,lon,sogKts,heel,pitch],...]
@@ -3576,7 +3624,16 @@ function drawAccelCurveR(rd){
 
   // ── Shared sampling: SOG (kts) + signed DTL (m) per boat ──
   const STEP = 0.5;
-  const sogSeries = {}, dtlSeries = {};
+  const sogSeries = {}, dtlSeries = {}, rsHeelSeries = {};
+  // nearest raw track point (roll is integer-resolution; no interpolation)
+  function nearestPt(t, ts){
+    if(!t || !t.length) return null;
+    let lo=0, hi=t.length-1;
+    while(lo<=hi){ const m=(lo+hi)>>1; if(t[m].ts<ts) lo=m+1; else hi=m-1; }
+    const a=t[Math.max(0,lo-1)], b=t[Math.min(t.length-1,lo)];
+    if(!a) return b||null; if(!b) return a;
+    return Math.abs(a.ts-ts)<=Math.abs(b.ts-ts)?a:b;
+  }
   const haveLine = !!(rd.RC && rd.PIN);
   for(const sail of sails){
     const t = rd.tracks[sail]; if(!t) continue;
@@ -3589,6 +3646,14 @@ function drawAccelCurveR(rd){
       } else { sog.push([rel, null]); dtl.push([rel, null]); }
     }
     sogSeries[sail] = sog; dtlSeries[sail] = dtl;
+    // RaceSense heel (roll), nearest sample within 2s
+    const rh = [];
+    for(let rel=-30; rel<=30+1e-6; rel+=STEP){
+      const want = rd.gunTs + rel*1000;
+      const p = nearestPt(t, want);
+      rh.push([rel, (p && Math.abs(p.ts-want)<=2000 && p.roll!=null) ? p.roll : null]);
+    }
+    rsHeelSeries[sail] = rh;
   }
   // VKX overlay series (dashed): sog, dtl, heel
   const vkxSog={}, vkxDtl={}, vkxHeel={};
@@ -3786,17 +3851,72 @@ function drawAccelCurveR(rd){
       yTicks:ticks, yFmt:v=>(v>0?'+':'')+v+'s', yLabel:'BURN (s)', zeroLine:0, series:burnSeries, dash:hasVkx?vkxBurn:null});
   }
 
-  // ── Chart 4: Heel (VKX only) ──
+  // ── Chart 4: Heel — solid = RaceSense roll, dashed = onboard VKX ──
   {
+    const anyRs = Object.values(rsHeelSeries).some(a=>a.some(p=>p[1]!=null));
     const wrap = document.getElementById(raceDomId(rd,'heelWrap'));
-    if(wrap) wrap.style.display = hasVkx ? '' : 'none';
-    if(hasVkx){
+    const show = anyRs || hasVkx;
+    if(wrap) wrap.style.display = show ? '' : 'none';
+    if(show){
       let hMax=10;
+      for(const s of Object.keys(rsHeelSeries)) for(const [,v] of rsHeelSeries[s]) if(v!=null&&Math.abs(v)>hMax) hMax=Math.abs(v);
       for(const s of Object.keys(vkxHeel)) for(const [,v] of vkxHeel[s]) if(v!=null&&Math.abs(v)>hMax) hMax=Math.abs(v);
-      hMax=Math.ceil(hMax/5)*5;
+      hMax=Math.min(45, Math.ceil(hMax/5)*5);
       const ticks=[]; for(let v=-hMax;v<=hMax;v+=5) ticks.push(v);
-      chart(raceDomId(rd,'cHeel'), {height:220, xRange:[-30,30], yRange:[-hMax,hMax],
-        yTicks:ticks, yFmt:v=>v+'\u00b0', yLabel:'HEEL (\u00b0)', zeroLine:0, series:{}, dash:vkxHeel});
+      chart(raceDomId(rd,'cHeel'), {height:230, xRange:[-30,30], yRange:[-hMax,hMax],
+        yTicks:ticks, yFmt:v=>v+'\u00b0', yLabel:'HEEL (\u00b0)', zeroLine:0,
+        series:rsHeelSeries, dash:hasVkx?vkxHeel:null});
+    }
+  }
+
+  // ── Phase 2: VKX vs RaceSense comparison table ──
+  {
+    const el = document.getElementById(raceDomId(rd,'vkxCmp'));
+    if(el){
+      if(!hasVkx){ el.style.display='none'; el.innerHTML=''; }
+      else {
+        el.style.display='';
+        const at = (series, rel) => {
+          const a = series || []; const i = Math.round((rel+30)/STEP);
+          return (a[i] && a[i][1]!=null) ? a[i][1] : null;
+        };
+        const minOf = (series, r0, r1) => {
+          let m=null;
+          for(const [r,v] of (series||[])) if(v!=null && r>=r0 && r<=r1) m=(m==null?v:Math.min(m,v));
+          return m;
+        };
+        const absMax = (series, r0, r1) => {
+          let m=null;
+          for(const [r,v] of (series||[])) if(v!=null && r>=r0 && r<=r1) m=(m==null?Math.abs(v):Math.max(m,Math.abs(v)));
+          return m;
+        };
+        const f = (v,d,u) => v==null ? '\u2014' : v.toFixed(d)+u;
+        const dcell = (a,b,d,u) => {
+          if(a==null||b==null) return '<td style="text-align:right;color:var(--muted2)">\u2014</td>';
+          const dv=b-a, col=Math.abs(dv)<(d===0?1:0.6)?'var(--muted)':'var(--yellow)';
+          return `<td style="text-align:right;color:${col}">${dv>0?'+':''}${dv.toFixed(d)}${u}</td>`;
+        };
+        const rowsHtml = Object.keys(vkxSog).map(sail=>{
+          const M = [
+            ['SOG @ gun',      at(sogSeries[sail],0),          at(vkxSog[sail],0),        1,'kt'],
+            ['Min SOG T-30\u21920', minOf(sogSeries[sail],-30,0), minOf(vkxSog[sail],-30,0), 1,'kt'],
+            ['DTL @ gun',      at(dtlSeries[sail],0),          at(vkxDtl[sail],0),        0,'m'],
+            ['Peak |heel| \u00b130s', absMax(rsHeelSeries[sail],-30,30), absMax(vkxHeel[sail],-30,30), 1,'\u00b0'],
+          ];
+          return `<tr><td colspan="4" style="padding-top:6px;font:700 10px Orbitron,sans-serif;color:${reachRankColor(rd,sail)}">${sail} ${TEAM_NAMES[sail]||''}</td></tr>` +
+            M.map(([lbl,a,b,d,u])=>`<tr>
+              <td style="color:var(--muted)">${lbl}</td>
+              <td style="text-align:right">${f(a,d,u)}</td>
+              <td style="text-align:right">${f(b,d,u)}</td>
+              ${dcell(a,b,d,u)}</tr>`).join('');
+        }).join('');
+        el.innerHTML = `<div class="mh" style="margin-top:10px">VKX vs RACESENSE \u00b7 data comparison</div>
+          <table style="width:100%;border-collapse:collapse;font:400 10px 'Share Tech Mono',monospace">
+          <thead><tr style="color:var(--muted);font-size:9px">
+            <th style="text-align:left">METRIC</th><th style="text-align:right">RACESENSE</th>
+            <th style="text-align:right">VKX</th><th style="text-align:right">\u0394</th>
+          </tr></thead><tbody>${rowsHtml}</tbody></table>`;
+      }
     }
   }
 
@@ -3810,7 +3930,7 @@ function drawAccelCurveR(rd){
         data-sail="${sail}" style="--chipcol:${col}">
         <span class="accelSw" style="background:${col}"></span>${sail}<span class="accelTeam">${TEAM_NAMES[sail]||''}</span>
       </button>`;
-    }).join('') + (hasVkx ? `<span style="font:400 8px 'Share Tech Mono',monospace;color:var(--muted);align-self:center;margin-left:6px">&#8212; solid RaceSense &nbsp;&#183;&nbsp; - - onboard VKX</span>` : '');
+    }).join('') + (hasVkx ? `<span style="font:400 8px 'Share Tech Mono',monospace;color:var(--muted);align-self:center;margin-left:6px">&#8212; solid RaceSense &nbsp;&#183;&nbsp; - - - onboard VKX (2Hz)</span>` : '');
     legEl.querySelectorAll('.accelChip').forEach(btn=>{
       btn.onclick = ()=>{
         const s=btn.getAttribute('data-sail');
