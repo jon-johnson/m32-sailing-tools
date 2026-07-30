@@ -4883,40 +4883,59 @@ function regionBoxSvg(st, maxPos, W){
 }
 
 // Builds the full two-method region table (shared by day and event summaries).
-function renderRegionTableHTML(regionStats, fleetRegionStats, maxPos){
-  const BW = 300, MINN = 10;
-  const section = (title, stats) => {
+function renderRegionTableHTML(R, maxPos){
+  const BW = 260, MINN = 10;
+  const section = (title, stats, ocs, delta) => {
     const rows = ['LOW','MID','HIGH'].map(r=>{
       const st = regionSummary(stats[r]);
       if(!st) return `<tr>
         <td style="font-family:Orbitron,monospace;padding:5px 8px">${r}</td>
-        <td colspan="4" style="padding:5px 8px;color:var(--muted2);font-style:italic">no boats in this region</td></tr>`;
+        <td colspan="6" style="padding:5px 8px;color:var(--muted2);font-style:italic">no boats in this region</td></tr>`;
       const thin = st.n < MINN;
+      const ds = regionSummary(delta[r]);
+      // MEAN, not median: deltas are centred at zero by construction across the
+      // whole fleet, so a mean reads directly as "worth X places versus your own
+      // norm". The median of a subset does not share that baseline — the delta
+      // distribution is right-skewed (bad races are unboundedly bad), which
+      // pushes every subset's median below zero and misleads on sign.
+      // Negative = beat own average = good. Under a quarter place is noise.
+      let dCell = '<span class="ds-mono" style="color:var(--muted2)">—</span>';
+      if(ds){
+        const v = ds.mean;
+        const col = Math.abs(v) < 0.25 ? 'var(--muted)' : (v < 0 ? 'var(--green)' : 'var(--red)');
+        dCell = `<span class="ds-mono" style="color:${col}">${v>0?'+':''}${v.toFixed(2)}</span>`;
+      }
       return `<tr>
         <td style="font-family:Orbitron,monospace;padding:5px 8px">${r}</td>
         <td style="text-align:right;padding:5px 8px"><span class="ds-mono">${st.mean.toFixed(1)}</span></td>
         <td style="text-align:right;padding:5px 8px"><span class="ds-mono" style="color:var(--cyan)">${st.med.toFixed(1)}</span></td>
+        <td style="text-align:right;padding:5px 8px">${dCell}</td>
         <td style="padding:5px 8px">${regionBoxSvg(st, maxPos, BW)}</td>
         <td style="text-align:right;padding:5px 8px"><span class="ds-mono" style="color:${thin?'var(--yellow)':'var(--muted)'}">${st.n}${thin?' *':''}</span></td>
+        <td style="text-align:right;padding:5px 8px"><span class="ds-mono" style="color:${(ocs?.[r]||0)>0?'var(--red)':'var(--muted2)'}">${ocs?.[r]||0}</span></td>
       </tr>`;
     }).join('');
-    return `<tr><td colspan="5" style="padding:10px 8px 3px;font-family:Orbitron,monospace;font-size:9px;color:var(--muted);letter-spacing:.5px">${title}</td></tr>${rows}`;
+    return `<tr><td colspan="7" style="padding:10px 8px 3px;font-family:Orbitron,monospace;font-size:9px;color:var(--muted);letter-spacing:.5px">${title}</td></tr>${rows}`;
   };
   return `<table class="ds-avg-table">
     <thead><tr>
       <th style="text-align:left">REGION</th>
       <th style="text-align:right">MEAN</th>
       <th style="text-align:right">MEDIAN</th>
+      <th style="text-align:right" title="Mean result relative to each boat's own event average — removes boat-speed bias. Negative = better than that boat's norm.">&Delta; OWN AVG</th>
       <th style="text-align:left">DISTRIBUTION &nbsp;<span style="font-weight:400;text-transform:none">box = p25–p75 · line = min–max · dashed = fleet-neutral</span></th>
       <th style="text-align:right">N</th>
+      <th style="text-align:right" title="OCS starts from this region — excluded from the position stats">OCS</th>
     </tr></thead>
     <tbody>
-      ${section('BY LINE POSITION &nbsp;— fixed thirds of the line (0–33% pin · 34–66% mid · 67–100% boat)', regionStats)}
-      ${section('BY FLEET THIRDS &nbsp;— ranked within each race, adapts to where the fleet bunched', fleetRegionStats)}
+      ${section('BY LINE POSITION &nbsp;— fixed thirds of the line (0–33% pin · 34–66% mid · 67–100% boat)', R.abs, R.absOcs, R.absDelta)}
+      ${section('BY FLEET THIRDS &nbsp;— ranked within each race, adapts to where the fleet bunched', R.fleet, R.fleetOcs, R.fleetDelta)}
     </tbody></table>
   <div style="font-size:9px;color:var(--muted);margin-top:5px;font-style:italic">
     Best position is at the left. If a region's box straddles the dashed line, that region did not measurably help or hurt.
+    <b>&Delta; OWN AVG</b> is the mean result relative to each boat's own event average, so it measures the region rather than which boats started there. Negative is better; zero is neutral.
     <span style="color:var(--yellow)">*</span> = fewer than ${MINN} samples, treat with caution.
+    OCS boats are counted but excluded from the position stats; boats over 100m from the line at the gun are excluded entirely.
   </div>`;
 }
 
@@ -4927,14 +4946,54 @@ function renderRegionTableHTML(regionStats, fleetRegionStats, maxPos){
 // fleet bunches into one part of the line and the absolute region cannot.
 // Ranking uses every boat with a valid line position (so the thirds reflect the
 // true fleet spread) but only records boats that also have a reach position.
-function assignFleetThirds(entries, out){
-  const ranked = entries.filter(e => e.sp != null).sort((a,b) => b.sp - a.sp);
+function assignFleetThirds(entries){
+  // Boats >100m from the line weren't meaningfully in the start, so they are
+  // dropped before ranking. OCS boats ARE ranked (they were on the line and
+  // define the fleet's spread) but are scored as OCS, not as a position.
+  const ranked = entries.filter(e => e.sp != null && !e.excluded).sort((a,b) => b.sp - a.sp);
   const n = ranked.length;
-  if(n < 3) return;                       // too few boats to split meaningfully
-  ranked.forEach((e,i) => {
-    const bucket = i < n/3 ? 'HIGH' : i < 2*n/3 ? 'MID' : 'LOW';
-    if(e.reachPos != null) out[bucket].push(e.reachPos);
-  });
+  if(n < 3) return;
+  ranked.forEach((e,i) => { e.fleetReg = i < n/3 ? 'HIGH' : i < 2*n/3 ? 'MID' : 'LOW'; });
+}
+
+// Turns raw per-boat-race samples into region statistics.
+//
+// Raw positions are confounded by boat quality: if a fast boat habitually
+// starts at the pin, the pin looks good because of the boat, not the position.
+// So alongside raw position we compute a WITHIN-BOAT DELTA — each result
+// measured against that boat's own event average. Pooling deltas cancels the
+// boat effect, leaving the region effect. A delta of -0.5 means "boats starting
+// here beat their own average by half a place".
+//
+// Baselines use clean starts only (OCS results are penalty-driven) and require
+// at least MIN_BASE races, so one or two starts can't define a boat's norm.
+function buildRegionStats(samples){
+  const MIN_BASE = 3;
+  const mk = () => ({LOW:[],MID:[],HIGH:[]}), mk0 = () => ({LOW:0,MID:0,HIGH:0});
+  const out = { abs:mk(), absOcs:mk0(), absDelta:mk(),
+                fleet:mk(), fleetOcs:mk0(), fleetDelta:mk() };
+  const byBoat = {};
+  for(const s of samples){
+    if(s.ocs || s.reachPos == null) continue;
+    (byBoat[s.sail] = byBoat[s.sail] || []).push(s.reachPos);
+  }
+  const base = {};
+  for(const k in byBoat){
+    if(byBoat[k].length >= MIN_BASE)
+      base[k] = byBoat[k].reduce((a,b)=>a+b,0) / byBoat[k].length;
+  }
+  for(const s of samples){
+    const pairs = [[s.absReg, out.abs, out.absOcs, out.absDelta],
+                   [s.fleetReg, out.fleet, out.fleetOcs, out.fleetDelta]];
+    for(const [reg, st, ocsC, dl] of pairs){
+      if(!reg) continue;
+      if(s.ocs){ ocsC[reg]++; continue; }
+      if(s.reachPos == null) continue;
+      st[reg].push(s.reachPos);
+      if(base[s.sail] != null) dl[reg].push(s.reachPos - base[s.sail]);
+    }
+  }
+  return out;
 }
 
 // ── EVENT-LEVEL SUMMARY (all days combined) ───────────────────────────────────
@@ -4960,10 +5019,7 @@ function renderEventSummary(panelEl, allRaces){
 
   const boatData = {};
   allBoats.forEach(b=>{ boatData[b]={ reachPos:[], finPos:[], delta:[], distGun:[], sogGun:[], t95:[], dtlT15:[], minSpd30:[], heel:[], startPct:[], ocsVakaros:[], raceDay:[] }; });
-  const regionStats = { LOW:[], MID:[], HIGH:[] };
-  // Fleet-relative thirds: ranked within each race, so it adapts to where the
-  // fleet actually bunched rather than to fixed line geometry.
-  const fleetRegionStats = { LOW:[], MID:[], HIGH:[] };
+  const regionSamples = [];   // one entry per boat-race, post-processed below
 
   for(const rd of allRaces){
     const dayIdx = rd.event?._dayIdx ?? 0;
@@ -4990,14 +5046,14 @@ function renderEventSummary(panelEl, allRaces){
       const sp = normStartPct(ss?.startLinePct ?? ss?.linePct);
       boatData[b].startPct.push(sp);
       const reachPos = rp>=0?rp+1:null;
-      const rg = startRegion(sp);
-      if(rg && reachPos!=null) regionStats[rg].push(reachPos);
-      raceEntries.push({ sp, reachPos });
+      raceEntries.push({ sail:b, sp, reachPos, ocs:isOcsB, excluded:isExcl,
+                         absReg: isExcl ? null : startRegion(sp) });
       const ocsVak=rd.ocsFromTelemetry?rd.ocsFromTelemetry.has(b):false;
       boatData[b].ocsVakaros.push(ocsVak);
       boatData[b].raceDay.push(EVENTS[dayIdx]?.label||`D${dayIdx+1}`);
     }
-    assignFleetThirds(raceEntries, fleetRegionStats);
+    assignFleetThirds(raceEntries);
+    for(const e of raceEntries) if(!e.excluded) regionSamples.push(e);
   }
 
   const aggr={};
@@ -5119,7 +5175,7 @@ function renderEventSummary(panelEl, allRaces){
   }
 
   function renderRegionTable(){
-    return renderRegionTableHTML(regionStats, fleetRegionStats, allBoats.length);
+    return renderRegionTableHTML(buildRegionStats(regionSamples), allBoats.length);
   }
 
   const fleetAvgSog = avg(allBoats.map(b=>aggr[b].avgSog));
@@ -5203,9 +5259,7 @@ function renderDaySummary(panelEl, event, races){
   // boatData[sail] = { reachPos[], finPos[], delta[], distGun[], sogGun[], ocsOfficial[], ocsVakaros[] }
   const boatData = {};
   allBoats.forEach(b=>{ boatData[b]={ reachPos:[], finPos:[], delta:[], distGun:[], sogGun:[], t95:[], dtlT15:[], minSpd30:[], heel:[], startPct:[], ocsVakaros:[] }; });
-  const regionStats = { LOW:[], MID:[], HIGH:[] };
-  // Fleet-relative thirds (see assignFleetThirds)
-  const fleetRegionStats = { LOW:[], MID:[], HIGH:[] };
+  const regionSamples = [];   // one entry per boat-race, post-processed below
 
   for(const rd of loaded){
     const raceEntries = [];
@@ -5253,16 +5307,16 @@ function renderDaySummary(panelEl, event, races){
       // 5c. Start line position (0%=pin, 100%=boat)
       const sp = normStartPct(ss?.startLinePct ?? ss?.linePct);
       boatData[b].startPct.push(sp);
-      const rg = startRegion(sp);
-      if(rg && reachPos!=null) regionStats[rg].push(reachPos);
-      raceEntries.push({ sp, reachPos });
+      raceEntries.push({ sail:b, sp, reachPos, ocs:isOcsB2, excluded:isExcl2,
+                         absReg: isExcl2 ? null : startRegion(sp) });
 
       // 6. Official OCS — Vakaros telemetry status=1 flag (authoritative)
       // ocsFromTelemetry is a Set of sail numbers called OCS by Vakaros this race
       const ocsVak = rd.ocsFromTelemetry ? rd.ocsFromTelemetry.has(b) : null;
       boatData[b].ocsVakaros.push(ocsVak === true ? true : false);
     }
-    assignFleetThirds(raceEntries, fleetRegionStats);
+    assignFleetThirds(raceEntries);
+    for(const e of raceEntries) if(!e.excluded) regionSamples.push(e);
   }
 
   // ── Day-level aggregates per boat ──
@@ -5416,7 +5470,7 @@ function renderDaySummary(panelEl, event, races){
   }
 
   function renderRegionTable(){
-    return renderRegionTableHTML(regionStats, fleetRegionStats, allBoats.length);
+    return renderRegionTableHTML(buildRegionStats(regionSamples), allBoats.length);
   }
 
   function renderSlopeChart(){
