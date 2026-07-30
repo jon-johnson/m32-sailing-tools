@@ -2782,14 +2782,43 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
   const lwSns = GATE_SNS.LW.filter(s => markPos[s]);
   
   let WWGATE, LWGATE, WW_A, WW_B, LW_A, LW_B;
-  if(wwSns.length >= 1){
-    WW_A = markPos[wwSns[0]]; WW_B = markPos[wwSns[1]] || WW_A;
-    WWGATE = {lat:(WW_A.lat+WW_B.lat)/2, lon:(WW_A.lon+WW_B.lon)/2};
-  }
-  if(lwSns.length >= 1){
-    LW_A = markPos[lwSns[0]]; LW_B = markPos[lwSns[1]] || LW_A;
-    LWGATE = {lat:(LW_A.lat+LW_B.lat)/2, lon:(LW_A.lon+LW_B.lon)/2};
-  }
+  // Two marks only form a gate if they are plausibly a pair. Averaging marks
+  // that aren't paired (e.g. a leeward mark with a reach mark) puts the
+  // "gate" hundreds of metres off course and skews the whole course axis.
+  const MAX_GATE_M = 250;
+  const mDist = (a,b) => {
+    if(!a || !b) return Infinity;
+    const R=6371000, p1=a.lat*Math.PI/180, p2=b.lat*Math.PI/180;
+    const dp=(b.lat-a.lat)*Math.PI/180, dl=(b.lon-a.lon)*Math.PI/180;
+    const h=Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+    return 2*R*Math.asin(Math.sqrt(h));
+  };
+  const resolveGate = (sns, label) => {
+    if(!sns.length) return [undefined, undefined, undefined];
+    const A = markPos[sns[0]];
+    let B = markPos[sns[1]];
+    if(B){
+      const gw = mDist(A,B);
+      if(gw > MAX_GATE_M){
+        console.warn(`[marks] ${label}: ${sns[0]} and ${sns[1]} are ${gw.toFixed(0)}m apart `
+                   + `(max gate ${MAX_GATE_M}m) — treating ${sns[0]} as a single mark. `
+                   + `Is ${sns[1]} actually the reach mark?`);
+        B = undefined;
+      }
+    }
+    const b = B || A;
+    return [A, b, {lat:(A.lat+b.lat)/2, lon:(A.lon+b.lon)/2}];
+  };
+  [WW_A, WW_B, WWGATE] = resolveGate(wwSns, 'WW');
+  [LW_A, LW_B, LWGATE] = resolveGate(lwSns, 'LW');
+
+  // Reach mark: use the configured SN when it is on the water.
+  const RM_SN  = GATE_SNS.REACH_SN;
+  const RM_CFGPOS = (RM_SN != null && markPos[RM_SN])
+    ? { lat: markPos[RM_SN].lat, lon: markPos[RM_SN].lon,
+        boat_lat: markPos[RM_SN].lat, boat_lon: markPos[RM_SN].lon,
+        conf: 'HIGH', fromConfig: true, sn: RM_SN }
+    : null;
   
   // RC and PIN
   let RC, PIN;
@@ -2877,7 +2906,10 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
   }
 
   // Reach mark detection
-  const rm = WWGATE && LWGATE && MID ? findReachMark(tracks, gunTs, WWGATE, LWGATE, MID) : null;
+  // Configured reach mark beats inference; inference stays as the fallback
+  // for events where the mark isn't transmitting.
+  const rm = RM_CFGPOS
+    || (WWGATE && LWGATE && MID ? findReachMark(tracks, gunTs, WWGATE, LWGATE, MID) : null);
 
   // Wind inference — race-level, later blended with same-day consensus
   const raceEnd = nextGunTs ? Math.min(gunTs + 1200000, nextGunTs - 1000) : gunTs + 1200000;
@@ -4819,6 +4851,75 @@ function drawDeltaR(rd){
 // ══════════════════════════════════════════════════════════════════
 //  DAY SUMMARY
 // ══════════════════════════════════════════════════════════════════
+// Distribution summary for a bucket of finishing/reach positions.
+// Returns mean AND median plus quartiles, so the table can show central
+// tendency and spread together — a mean alone cannot express "this is noise".
+function regionSummary(vals){
+  const v = vals.filter(x => x != null).sort((a,b)=>a-b);
+  const n = v.length;
+  if(!n) return null;
+  const q = p => {
+    const idx = (n-1)*p, lo = Math.floor(idx), hi = Math.ceil(idx);
+    return lo===hi ? v[lo] : v[lo] + (v[hi]-v[lo])*(idx-lo);
+  };
+  return { n, mean: v.reduce((a,b)=>a+b,0)/n, med: q(0.5),
+           p25: q(0.25), p75: q(0.75), min: v[0], max: v[n-1] };
+}
+
+// Horizontal box plot: whisker = min–max, box = p25–p75, tick = median,
+// dashed line = fleet-neutral position. Position 1 (best) on the left.
+function regionBoxSvg(st, maxPos, W){
+  if(!st || maxPos < 2) return '';
+  const H = 22, pad = 2;
+  const xOf = p => pad + ((p-1)/(maxPos-1))*(W-2*pad);
+  const neutral = (1+maxPos)/2;
+  const bx = xOf(st.p25), bw = Math.max(2, xOf(st.p75)-xOf(st.p25));
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block">
+    <line x1="${xOf(neutral)}" y1="1" x2="${xOf(neutral)}" y2="${H-1}" stroke="var(--muted2)" stroke-width="1" stroke-dasharray="3 3"/>
+    <line x1="${xOf(st.min)}" y1="${H/2}" x2="${xOf(st.max)}" y2="${H/2}" stroke="var(--muted)" stroke-width="1"/>
+    <rect x="${bx}" y="4" width="${bw}" height="${H-8}" fill="var(--cyan)" fill-opacity="0.22" stroke="var(--cyan)" stroke-width="1" rx="2"/>
+    <line x1="${xOf(st.med)}" y1="2" x2="${xOf(st.med)}" y2="${H-2}" stroke="var(--cyan)" stroke-width="3"/>
+  </svg>`;
+}
+
+// Builds the full two-method region table (shared by day and event summaries).
+function renderRegionTableHTML(regionStats, fleetRegionStats, maxPos){
+  const BW = 300, MINN = 10;
+  const section = (title, stats) => {
+    const rows = ['LOW','MID','HIGH'].map(r=>{
+      const st = regionSummary(stats[r]);
+      if(!st) return `<tr>
+        <td style="font-family:Orbitron,monospace;padding:5px 8px">${r}</td>
+        <td colspan="4" style="padding:5px 8px;color:var(--muted2);font-style:italic">no boats in this region</td></tr>`;
+      const thin = st.n < MINN;
+      return `<tr>
+        <td style="font-family:Orbitron,monospace;padding:5px 8px">${r}</td>
+        <td style="text-align:right;padding:5px 8px"><span class="ds-mono">${st.mean.toFixed(1)}</span></td>
+        <td style="text-align:right;padding:5px 8px"><span class="ds-mono" style="color:var(--cyan)">${st.med.toFixed(1)}</span></td>
+        <td style="padding:5px 8px">${regionBoxSvg(st, maxPos, BW)}</td>
+        <td style="text-align:right;padding:5px 8px"><span class="ds-mono" style="color:${thin?'var(--yellow)':'var(--muted)'}">${st.n}${thin?' *':''}</span></td>
+      </tr>`;
+    }).join('');
+    return `<tr><td colspan="5" style="padding:10px 8px 3px;font-family:Orbitron,monospace;font-size:9px;color:var(--muted);letter-spacing:.5px">${title}</td></tr>${rows}`;
+  };
+  return `<table class="ds-avg-table">
+    <thead><tr>
+      <th style="text-align:left">REGION</th>
+      <th style="text-align:right">MEAN</th>
+      <th style="text-align:right">MEDIAN</th>
+      <th style="text-align:left">DISTRIBUTION &nbsp;<span style="font-weight:400;text-transform:none">box = p25–p75 · line = min–max · dashed = fleet-neutral</span></th>
+      <th style="text-align:right">N</th>
+    </tr></thead>
+    <tbody>
+      ${section('BY LINE POSITION &nbsp;— fixed thirds of the line (0–33% pin · 34–66% mid · 67–100% boat)', regionStats)}
+      ${section('BY FLEET THIRDS &nbsp;— ranked within each race, adapts to where the fleet bunched', fleetRegionStats)}
+    </tbody></table>
+  <div style="font-size:9px;color:var(--muted);margin-top:5px;font-style:italic">
+    Best position is at the left. If a region's box straddles the dashed line, that region did not measurably help or hurt.
+    <span style="color:var(--yellow)">*</span> = fewer than ${MINN} samples, treat with caution.
+  </div>`;
+}
+
 // Fleet-relative start thirds.
 // Ranks one race's boats by line position (highest linePct = boat/RC end) and
 // splits into thirds by RANK, not by line geometry. Answers "did being at the
@@ -5018,37 +5119,7 @@ function renderEventSummary(panelEl, allRaces){
   }
 
   function renderRegionTable(){
-    const C = 'padding:6px 8px;text-align:center;font-family:Share Tech Mono,monospace';
-    const rows = ['LOW','MID','HIGH'].map(r=>{
-      const vals = regionStats[r], av = avg(vals);
-      const fv   = fleetRegionStats[r], fav = avg(fv);
-      return `<tr>
-        <td style="padding:6px 8px;font-family:Orbitron,monospace">${r}</td>
-        <td style="${C}">${av!=null?av.toFixed(1):'—'}</td>
-        <td style="${C};color:var(--muted)">${vals.length}</td>
-        <td style="${C}">${fav!=null?fav.toFixed(1):'—'}</td>
-        <td style="${C};color:var(--muted)">${fv.length}</td>
-      </tr>`;
-    }).join('');
-    const H = 'text-align:center;padding:4px 8px';
-    return `<table class="ds-avg-table" style="width:100%;border-collapse:collapse;font-size:11px">
-      <thead>
-        <tr>
-          <th style="text-align:left;padding:4px 8px" rowspan="2">REGION</th>
-          <th style="${H};border-bottom:1px solid var(--muted2)" colspan="2">BY LINE POSITION</th>
-          <th style="${H};border-bottom:1px solid var(--muted2)" colspan="2">BY FLEET THIRDS</th>
-        </tr>
-        <tr style="font-size:9px;color:var(--muted)">
-          <th style="${H}">AVG REACH</th><th style="${H}">N</th>
-          <th style="${H}">AVG REACH</th><th style="${H}">N</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div style="font-size:9px;color:var(--muted);margin-top:4px;font-style:italic">
-      By line position = fixed thirds of the line (0–33% pin · 34–66% mid · 67–100% boat).
-      By fleet thirds = ranked within each race, so it adapts to where the fleet bunched.
-    </div>`;
+    return renderRegionTableHTML(regionStats, fleetRegionStats, allBoats.length);
   }
 
   const fleetAvgSog = avg(allBoats.map(b=>aggr[b].avgSog));
@@ -5345,26 +5416,7 @@ function renderDaySummary(panelEl, event, races){
   }
 
   function renderRegionTable(){
-    const rows = ['LOW','MID','HIGH'].map(r=>{
-      const vals = regionStats[r], av = avg(vals);
-      const fv   = fleetRegionStats[r], fav = avg(fv);
-      return `<tr>
-        <td style="font-family:Orbitron,monospace">${r}</td>
-        <td style="text-align:center"><span class="ds-mono">${av!=null?av.toFixed(1):'—'}</span></td>
-        <td style="text-align:center"><span class="ds-mono" style="color:var(--muted)">${vals.length}</span></td>
-        <td style="text-align:center"><span class="ds-mono">${fav!=null?fav.toFixed(1):'—'}</span></td>
-        <td style="text-align:center"><span class="ds-mono" style="color:var(--muted)">${fv.length}</span></td>
-      </tr>`;
-    }).join('');
-    return `<table class="ds-avg-table">
-      <thead>
-        <tr><th rowspan="2">REGION</th><th colspan="2" style="border-bottom:1px solid var(--muted2)">BY LINE POSITION</th><th colspan="2" style="border-bottom:1px solid var(--muted2)">BY FLEET THIRDS</th></tr>
-        <tr style="font-size:9px"><th>AVG REACH</th><th>N</th><th>AVG REACH</th><th>N</th></tr>
-      </thead>
-      <tbody>${rows}</tbody></table>
-      <div style="font-size:9px;color:var(--muted);margin-top:4px;font-style:italic">
-        By line position = fixed thirds of the line. By fleet thirds = ranked within each race.
-      </div>`;
+    return renderRegionTableHTML(regionStats, fleetRegionStats, allBoats.length);
   }
 
   function renderSlopeChart(){
@@ -5961,7 +6013,7 @@ let COL              = {};
 let TEAM_NAMES       = {};
 let OFFICIAL_RESULTS_BY_DAY = {};
 let OFFICIAL_RESULTS = {};
-let GATE_SNS         = { WW:[], LW:[], RC_SNS:[], PIN_SN:null };
+let GATE_SNS         = { WW:[], LW:[], RC_SNS:[], PIN_SN:null, REACH_SN:null };
 
 async function loadEventConfig() {
   const params  = new URLSearchParams(window.location.search);
@@ -5989,7 +6041,7 @@ async function loadEventConfig() {
   TEAM_NAMES              = cfg.fleet?.teamNames     || {};
   OFFICIAL_RESULTS_BY_DAY = cfg.officialResults      || {};
   OFFICIAL_RESULTS        = OFFICIAL_RESULTS_BY_DAY[0] || {};
-  GATE_SNS                = cfg.markSNs || { WW:[], LW:[], RC_SNS:[], PIN_SN:null };
+  GATE_SNS                = cfg.markSNs || { WW:[], LW:[], RC_SNS:[], PIN_SN:null, REACH_SN:null };
   document.title = `${REGATTA_SUBTITLE} · Race Report`;
   window.ACTIVE_EVENT_LABEL = EVENTS.map(e => e.label).join(', ');
   // eventId for Firestore race data — use explicit cfg.eventId, fall back to slug
