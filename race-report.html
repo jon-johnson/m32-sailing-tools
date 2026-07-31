@@ -2920,9 +2920,11 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
   // Reach times — now computed inside findReachMark via computeReachTimes()
   // rm.reachTimes is a map of sail -> {markTime, minDist, conf}
   const reachTimes = {};
+  const reachConf  = {};   // 'HIGH' | 'MEDIUM' | 'LOW' — LOW means the boat never
+                           // came within MARK_PASS_RADIUS_M, so the time is a guess
   if(rm && rm.reachTimes){
     for(const [sail, rt] of Object.entries(rm.reachTimes)){
-      if(rt.markTime) reachTimes[sail] = rt.markTime;
+      if(rt.markTime){ reachTimes[sail] = rt.markTime; reachConf[sail] = rt.conf; }
     }
   }
 
@@ -2957,15 +2959,17 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
   }
 
   // L1 stats — ranked by distance from PIN at T+50 (covers ALL boats, no mark detection needed)
-  // Distance from PIN = how far the boat has sailed toward the reach mark.
-  // Closest to PIN at T+50 = furthest ahead on the reach leg.
+  // Reach-leg position. Preferred basis is the actual reach-mark rounding time
+  // (ground truth). The T+50 distance-from-PIN proxy is the fallback for races
+  // where too few boats have a usable rounding time — further from PIN at T+50
+  // means further along the reach leg.
   const l1stats = [];
   for(const sail of BOATS){
     const t = tracks[sail];
     if(!t) continue;
     const p50 = ptAtTime(t, gunTs + 50000);
     if(!p50) continue;
-    // Distance from PIN at T+50 (smaller = closer to mark = better position)
+    // Distance from PIN at T+50 (larger = further along the reach leg)
     const distFromPin = PIN ? hav(p50.lat, p50.lon, PIN.lat, PIN.lon) : null;
     // Also compute reach time from reachTimes if available (for gap column)
     const ts1 = reachTimes[sail] || null;
@@ -2985,16 +2989,41 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
       const rm2 = rollPts.reduce((s,p)=>s+p.roll,0)/rollPts.length;
       heelSd = Math.sqrt(rollPts.reduce((s,p)=>s+(p.roll-rm2)**2,0)/rollPts.length);
     }
-    l1stats.push({sail, distFromPin, dur, dist:dist50, sog:sog50||0, heel, heelSd});
+    l1stats.push({sail, distFromPin, dur, conf:reachConf[sail]||null, dist:dist50, sog:sog50||0, heel, heelSd});
   }
-  // Sort by distFromPin DESCENDING (further from pin = further ahead on reach leg).
-  // If PIN unavailable, fall back to distance sailed descending.
+  // ── Reach-leg ordering ──────────────────────────────────────────────────
+  // Actual rounding time is ground truth and is used whenever most of the fleet
+  // has one. Mixing time-ranked and proxy-ranked boats inside one race would be
+  // incoherent, so the choice is made per race, not per boat. Any stragglers
+  // without a time sort to the back and are separated among themselves by the
+  // proxy. Below the threshold the whole race falls back to the T+50 proxy,
+  // which needs only the PIN and boat tracks — both densely sampled.
+  // computeReachTimes always returns a markTime — it falls back to the closest
+  // approach in the window even when the boat never got near the mark. So the
+  // gate must be on CONFIDENCE, not on a time merely existing. A race where most
+  // boats are LOW means the mark position itself is wrong for that race (it may
+  // have been moved), and the times are meaningless.
   const hasPinDist = l1stats.some(s=>s.distFromPin!=null);
-  if(hasPinDist){
+  const nGood      = l1stats.filter(s=>s.dur!=null && s.conf && s.conf!=='LOW').length;
+  const useTimes   = nGood >= 5 && nGood >= Math.ceil(l1stats.length * 0.8);
+  if(useTimes){
+    // Only trust times we actually believe. A LOW-confidence boat keeps its time
+    // for ordering (it is still the best estimate available) but ties break on
+    // the proxy, so a wide rounding cannot leapfrog a clean one on noise alone.
+    l1stats.sort((a,b)=>{
+      const at=(a.dur!=null&&a.conf!=='LOW')?a.dur:Infinity;
+      const bt=(b.dur!=null&&b.conf!=='LOW')?b.dur:Infinity;
+      if(at!==bt) return at-bt;
+      const af=a.dur??Infinity, bf=b.dur??Infinity;
+      if(af!==bf) return af-bf;
+      return (b.distFromPin??-Infinity)-(a.distFromPin??-Infinity);
+    });
+  } else if(hasPinDist){
     l1stats.sort((a,b)=>(b.distFromPin??-Infinity)-(a.distFromPin??-Infinity));
   } else {
-    l1stats.sort((a,b)=>b.dist-a.dist); // fallback: most distance sailed first
+    l1stats.sort((a,b)=>b.dist-a.dist); // last resort: most distance sailed
   }
+  const l1Method = useTimes ? 'rounding-time' : (hasPinDist ? 't50-proxy' : 'distance-sailed');
   const l1Order = l1stats.map(s=>s.sail);
 
   // ── Enhanced start analysis ──
@@ -3157,7 +3186,7 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
     WWGATE, LWGATE, WW_A, WW_B, LW_A, LW_B,
     RC, PIN, MID, rm, WF, WF_OBJ,
     WF_RACE_OBJ, WF_DAY_OBJ:null, WF_BLEND_OBJ:WF_OBJ,
-    reachTimes, finTimes, l1stats, l1Order,
+    reachTimes, finTimes, l1stats, l1Order, l1Method,
     startStats, GUND, T50, dataQuality, vmgData,
     rmInference: rm ? rm.inference : null,
     ocsFromTelemetry,
