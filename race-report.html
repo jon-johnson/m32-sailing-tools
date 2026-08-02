@@ -3438,6 +3438,8 @@ function renderRacePanel(panelEl, rd){
         <canvas id="${raceDomId(rd,'cHeel')}" style="width:100%;display:block"></canvas>
       </div>
       <div id="${raceDomId(rd,'vkxCmp')}" style="display:none"></div>
+      <div id="${raceDomId(rd,'startCorridor')}"></div>
+      <div id="${raceDomId(rd,'startExec')}"></div>
       <div id="${raceDomId(rd,'accelLegend')}" class="accelLegend"></div>
     </div>
 
@@ -3455,6 +3457,7 @@ function renderRacePanel(panelEl, rd){
     if(T50.length  && RC && PIN) drawT50R(rd);
     if(RC && PIN) initStartReplayR(rd);
     if(Object.keys(rd.tracks||{}).length) drawAccelCurveR(rd);
+    try{ renderStartExecR(rd); }catch(e){ console.warn('start exec failed', e); }
     if(RC && PIN) drawCourseR(rd); // draw even without WW/LW gates
     if(l1stats.length) renderL1R(rd);
     drawWindR(rd);
@@ -3616,6 +3619,132 @@ function gunMapBoatColor(rd, sail){
 // ── Acceleration curves: SOG (kts) vs time-to-gun, full fleet ──
 // Per-race spotlight state: which sail is highlighted (null = none)
 window._accelSpotlight = window._accelSpotlight || {};
+
+// ── Start execution analysis ────────────────────────────────────────────────
+// Boat potential: 95th-pct SOG in gun+90s..gun+130s. By then the fleet has
+// spread, so this reflects the boat rather than the lane it was stuck in.
+// The report already fetches to gun+20min, so this costs no extra requests.
+function boatPotential(rd, sail){
+  const t = rd.tracks?.[sail]; if(!t) return null;
+  const v = t.filter(p => p.ts >= rd.gunTs+90000 && p.ts <= rd.gunTs+130000)
+             .map(p => p.sog||0).sort((a,b)=>a-b);
+  if(v.length < 25) return null;
+  return v[Math.floor(v.length*0.95)];
+}
+
+// Per-boat start execution metrics.
+function startExecStats(rd){
+  const out = {};
+  const sails = Object.keys(rd.tracks||{}).filter(s => !EXCLUDED_BOATS.includes(s));
+  for(const sail of sails){
+    const t = rd.tracks[sail]; if(!t) continue;
+    const at = rel => interpTrackPoint(t, rd.gunTs + rel*1000, null);
+    const sAt = rel => { const p = at(rel); return p ? (p.sog||0) : null; };
+    const dAt = rel => { const p = at(rel); return (p && rd.RC && rd.PIN) ? distToLinePt(p, rd.RC, rd.PIN) : null; };
+    // approach speed: median T-12..T-6, before the final build
+    const ap = []; for(let r=-12; r<=-6; r+=0.5){ const v=sAt(r); if(v!=null) ap.push(v); }
+    ap.sort((a,b)=>a-b);
+    // trigger: last sustained rise out of the pre-start minimum
+    let vmin=Infinity, rmin=null;
+    for(let r=-25; r<=0; r+=0.5){ const v=sAt(r); if(v!=null && v<vmin){ vmin=v; rmin=r; } }
+    let trig=null;
+    if(rmin!=null){
+      for(let r=rmin; r<=0; r+=0.5){
+        const v=sAt(r);
+        if(v!=null && v > vmin+1.0){ trig=r; break; }
+      }
+    }
+    const pot = boatPotential(rd, sail);
+    const v15 = sAt(15);
+    out[sail] = {
+      dtl20:dAt(-20), dtl15:dAt(-15), dtl10:dAt(-10), dtl5:dAt(-5), dtl0:dAt(0),
+      app: ap.length ? ap[Math.floor(ap.length/2)] : null,
+      vmin: isFinite(vmin) ? vmin : null,
+      trig, vgun: sAt(0), pot,
+      lane: (pot && v15!=null) ? v15/pot : null
+    };
+  }
+  return out;
+}
+
+function renderStartExecR(rd){
+  const el = document.getElementById(raceDomId(rd,'startExec'));
+  const cor = document.getElementById(raceDomId(rd,'startCorridor'));
+  if(!el || !rd.tracks) return;
+  const S = startExecStats(rd);
+  const order = rd.l1Order || [];
+  const sails = Object.keys(S).filter(s => isVisibleAtGunReplay(rd, s));
+  if(!sails.length){ el.innerHTML=''; if(cor) cor.innerHTML=''; return; }
+  const f = (v,d,u) => v==null ? '<span style="color:var(--muted2)">—</span>' : v.toFixed(d)+(u||'');
+
+  // ── Corridor: fleet DTL at each checkpoint, with reach rank shading ──
+  if(cor){
+    const CP = [['dtl20','T-20'],['dtl15','T-15'],['dtl10','T-10'],['dtl5','T-5'],['dtl0','GUN']];
+    const rows = sails.map(s=>({s, rp: order.indexOf(s), ...S[s]}))
+                      .sort((a,b)=> (a.rp<0?99:a.rp)-(b.rp<0?99:b.rp));
+    const band = key => {
+      const top = rows.filter(r=>r.rp>=0 && r.rp<3 && r[key]!=null).map(r=>r[key]).sort((a,b)=>a-b);
+      if(top.length<2) return null;
+      return [top[0], top[top.length-1]];
+    };
+    cor.innerHTML = `<div class="mh" style="margin-top:10px">START CORRIDOR · distance to line through the sequence</div>
+      <table class="ds-avg-table"><thead><tr>
+        <th style="text-align:left">BOAT</th>${CP.map(c=>`<th style="text-align:right">${c[1]}</th>`).join('')}
+        <th style="text-align:right">REACH</th></tr></thead><tbody>
+      ${rows.map(r=>{
+        const col = reachRankColor(rd, r.s);
+        const lead = r.rp>=0 && r.rp<3;
+        return `<tr${lead?' style="background:rgba(0,204,255,.06)"':''}>
+          <td style="font-family:Orbitron,monospace;color:${col}">${r.s} <span style="font-size:9px;color:var(--muted)">${TEAM_NAMES[r.s]||''}</span></td>
+          ${CP.map(c=>`<td style="text-align:right"><span class="ds-mono">${f(r[c[0]],0,'m')}</span></td>`).join('')}
+          <td style="text-align:right"><span class="ds-mono">${r.rp>=0?r.rp+1:'—'}</span></td></tr>`;
+      }).join('')}
+      ${(()=>{const b=CP.map(c=>band(c[0]));
+        return `<tr style="border-top:1px solid var(--muted2)">
+          <td style="color:var(--cyan);font-size:9px;font-family:Orbitron,monospace">TOP-3 BAND</td>
+          ${b.map(x=>`<td style="text-align:right"><span class="ds-mono" style="color:var(--cyan)">${x?Math.round(x[0])+'-'+Math.round(x[1])+'m':'—'}</span></td>`).join('')}
+          <td></td></tr>`;})()}
+      </tbody></table>
+      <div style="font-size:9px;color:var(--muted);margin-top:4px;font-style:italic">
+        Top-3 band = the spread of the three boats that led at the reach mark. Aim to sit inside it at each checkpoint.
+      </div>`;
+  }
+
+  // ── Execution table ──
+  const rows = sails.map(s=>({s, rp: order.indexOf(s), ...S[s]}))
+                    .sort((a,b)=> (a.rp<0?99:a.rp)-(b.rp<0?99:b.rp));
+  const laneCell = v => {
+    if(v==null) return '<span style="color:var(--muted2)">—</span>';
+    const c = v>=0.90?'var(--green)':v>=0.80?'var(--yellow)':'var(--red)';
+    return `<span class="ds-mono" style="color:${c}">${Math.round(v*100)}%</span>`;
+  };
+  el.innerHTML = `<div class="mh" style="margin-top:12px">START EXECUTION · trigger, approach and lane quality</div>
+    <table class="ds-avg-table"><thead><tr>
+      <th style="text-align:left">BOAT</th>
+      <th style="text-align:right" title="Median speed T-12 to T-6, before the final build">APPROACH</th>
+      <th style="text-align:right" title="Lowest speed in the 25s before the gun">PARK</th>
+      <th style="text-align:right" title="When the final build began">TRIGGER</th>
+      <th style="text-align:right">SOG@GUN</th>
+      <th style="text-align:right" title="Boat potential: 95th-pct speed at gun+90s to +130s, once the fleet has spread">POTENTIAL</th>
+      <th style="text-align:right" title="Speed at T+15 as a share of this boat's own potential. Below 80% means the boat was gassed, not slow.">LANE</th>
+      <th style="text-align:right">REACH</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td style="font-family:Orbitron,monospace;color:${reachRankColor(rd,r.s)}">${r.s} <span style="font-size:9px;color:var(--muted)">${TEAM_NAMES[r.s]||''}</span></td>
+      <td style="text-align:right"><span class="ds-mono">${f(r.app,1,' kt')}</span></td>
+      <td style="text-align:right"><span class="ds-mono">${f(r.vmin,1,' kt')}</span></td>
+      <td style="text-align:right"><span class="ds-mono">${r.trig!=null?'T'+r.trig.toFixed(1):'<span style="color:var(--muted2)">—</span>'}</span></td>
+      <td style="text-align:right"><span class="ds-mono">${f(r.vgun,1,' kt')}</span></td>
+      <td style="text-align:right"><span class="ds-mono" style="color:var(--muted)">${f(r.pot,1,' kt')}</span></td>
+      <td style="text-align:right">${laneCell(r.lane)}</td>
+      <td style="text-align:right"><span class="ds-mono">${r.rp>=0?r.rp+1:'—'}</span></td>
+    </tr>`).join('')}
+    </tbody></table>
+    <div style="font-size:9px;color:var(--muted);margin-top:4px;font-style:italic">
+      LANE separates being slow from being gassed: green 90%+ clean air, amber 80-90%, red under 80% means the boat
+      never reached its own proven speed — a lane problem, not a boat-speed or timing problem.
+    </div>`;
+}
 
 function drawAccelCurveR(rd){
   const spotKey = raceDomId(rd,'cAccel');
@@ -5808,7 +5937,7 @@ function selectRace(event, di, raceNum, guns, ri){
     document.querySelectorAll(`#raceContent${di} > div`).forEach(p=>p.style.display='none');
     existing.style.display='block';
     const rd=(event._races||[]).find(r=>r && r.raceNum===raceNum && (r._dayIdx===di || event._dayIdx===di));
-    if(rd){ requestAnimationFrame(()=>{ try{ const saved=saveGlobals(); setGlobals(rd); drawWindR(rd); drawCourseR(rd); if(rd.GUND?.length && rd.RC && rd.PIN) drawGunR(rd); if(rd.T50?.length && rd.RC && rd.PIN) drawT50R(rd); if(rd.RC && rd.PIN) initStartReplayR(rd); if(Object.keys(rd.tracks||{}).length) drawAccelCurveR(rd); restoreGlobals(saved);}catch(e){ console.warn('revisit redraw failed', raceNum, e); } }); updateRaceTwsUi(rd); updateRaceTwdUi(rd); }
+    if(rd){ requestAnimationFrame(()=>{ try{ const saved=saveGlobals(); setGlobals(rd); drawWindR(rd); drawCourseR(rd); if(rd.GUND?.length && rd.RC && rd.PIN) drawGunR(rd); if(rd.T50?.length && rd.RC && rd.PIN) drawT50R(rd); if(rd.RC && rd.PIN) initStartReplayR(rd); if(Object.keys(rd.tracks||{}).length) drawAccelCurveR(rd); try{ renderStartExecR(rd); }catch(e){} restoreGlobals(saved);}catch(e){ console.warn('revisit redraw failed', raceNum, e); } }); updateRaceTwsUi(rd); updateRaceTwdUi(rd); }
     syncBottomTwsControls();
     return;
   }
