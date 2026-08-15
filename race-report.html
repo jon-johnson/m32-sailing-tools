@@ -3315,7 +3315,10 @@ function renderRacePanel(panelEl, rd){
     </tr></thead><tbody id="${startBodyId}"></tbody></table></div>
 
     <!-- PAGE 2 — Leg 1 table first -->
-    <div class="sh page2-start">LEG 1 — REACH ORDER at T+50s · ranked by dist from pin</div>
+    <div class="sh page2-start">LEG 1 — REACH ORDER · ${rd.l1Method==='rounding-time'
+      ? 'ranked by time at the reach mark'
+      : (rd.l1Method==='t50-proxy' ? 'ranked by distance from pin at T+50s'
+                                   : 'ranked by distance sailed')}</div>
     <div class="table-scroll"><table class="reach-table" id="${l1TableId}"><thead><tr>
       <th data-col="rank" style="cursor:pointer" onclick="sortTable('${l1TableId}','rank','asc',false)">#</th>
       <th>Boat</th>
