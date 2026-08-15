@@ -2814,10 +2814,16 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
 
   // Reach mark: use the configured SN when it is on the water.
   const RM_SN  = GATE_SNS.REACH_SN;
+  // NOTE: computeReachTimes() normally runs inside findReachMark(). Taking the
+  // configured position short-circuits that call, so the rounding times have to
+  // be computed here too — without this, every dur is null, the hybrid ordering
+  // silently falls back to the T+50 proxy, and the configured mark makes the
+  // reach order WORSE rather than better.
   const RM_CFGPOS = (RM_SN != null && markPos[RM_SN])
     ? { lat: markPos[RM_SN].lat, lon: markPos[RM_SN].lon,
         boat_lat: markPos[RM_SN].lat, boat_lon: markPos[RM_SN].lon,
-        conf: 'HIGH', fromConfig: true, sn: RM_SN }
+        conf: 'HIGH', fromConfig: true, sn: RM_SN,
+        reachTimes: computeReachTimes(tracks, markPos[RM_SN].lat, markPos[RM_SN].lon, gunTs) }
     : null;
   
   // RC and PIN
