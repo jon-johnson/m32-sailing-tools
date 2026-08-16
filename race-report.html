@@ -1653,36 +1653,73 @@ function fleetSanityCheck(tracks, ocsBoats, candidateSail, markLat, markLon, gun
 
 // ─── F) PER-BOAT REACH MARK TIME ───
 // Returns {markTime, minDist, dtlSeconds, conf} for each boat.
-function computeReachTimes(tracks, markLat, markLon, gunTs){
+function computeReachTimes(tracks, markLat, markLon, gunTs, pinLat, pinLon){
   const winStart = gunTs + 15000;
   const winEnd   = gunTs + 240000;
   const result = {};
+
+  // Primary method: time the boat crosses the perpendicular through the mark,
+  // square to the reach-leg axis (pin -> mark). This is how a race committee
+  // times a mark: one shared line, so a boat that rounds wide is not penalised.
+  // Closest approach, the old method, times the minimum distance — which occurs
+  // partway THROUGH the turn, after the mark is already abeam. It therefore runs
+  // systematically late (mean +1.9 s here, worst case +21.5 s) and the error
+  // grows with rounding radius. Closest approach is kept as the fallback.
+  const havePin = Number.isFinite(pinLat) && Number.isFinite(pinLon);
+  let ux=0, uy=0, legLen=0;
+  if(havePin){
+    // local metre frame centred on the pin
+    const mx = hav(pinLat, pinLon, pinLat, markLon) * (markLon >= pinLon ? 1 : -1);
+    const my = hav(pinLat, pinLon, markLat, pinLon) * (markLat >= pinLat ? 1 : -1);
+    legLen = Math.hypot(mx, my);
+    if(legLen > 1){ ux = mx/legLen; uy = my/legLen; }
+  }
+  const proj = (lat, lon) => {
+    const px = hav(pinLat, pinLon, pinLat, lon) * (lon >= pinLon ? 1 : -1);
+    const py = hav(pinLat, pinLon, lat, pinLon) * (lat >= pinLat ? 1 : -1);
+    return px*ux + py*uy;
+  };
 
   for(const [sail, t] of Object.entries(tracks)){
     if(!t || t.length < 2){ result[sail]={markTime:null,minDist:null,conf:'LOW'}; continue; }
     const seg = t.filter(p => p.ts >= winStart && p.ts <= winEnd);
     if(!seg.length){ result[sail]={markTime:null,minDist:null,conf:'LOW'}; continue; }
 
+    // closest approach — used for the confidence rating and as fallback timing
     let minD = Infinity, minTs = null;
-    // Also detect local minima (first closest approach before moving away)
-    let prevD = Infinity;
-    let localMinTs = null, localMinD = Infinity;
-    let foundLocal = false;
-
+    let prevD = Infinity, localMinTs = null, localMinD = Infinity, foundLocal = false;
     for(const p of seg){
       const d = hav(p.lat, p.lon, markLat, markLon);
       if(d < minD){ minD = d; minTs = p.ts; }
-      // Local minimum: dist decreasing then increasing
       if(d > prevD + 1 && !foundLocal && prevD < RM_CFG.MARK_PASS_RADIUS_M){
         localMinTs = minTs; localMinD = minD; foundLocal = true;
       }
       prevD = d;
     }
+    const cpaTs = foundLocal ? localMinTs : minTs;
+    const cpaD  = foundLocal ? localMinD  : minD;
 
-    const useTs  = foundLocal ? localMinTs : minTs;
-    const useD   = foundLocal ? localMinD  : minD;
-    const conf   = useD < 20 ? 'HIGH' : useD < RM_CFG.MARK_PASS_RADIUS_M ? 'MEDIUM' : 'LOW';
-    result[sail] = { markTime: useTs, minDist: Math.round(useD), conf };
+    // perpendicular crossing, interpolated between the straddling samples
+    let crossTs = null;
+    if(legLen > 1){
+      let prev = null;
+      for(const p of seg){
+        const s = proj(p.lat, p.lon);
+        if(prev && prev.s < legLen && s >= legLen){
+          const f = (s - prev.s) !== 0 ? (legLen - prev.s) / (s - prev.s) : 0;
+          crossTs = prev.ts + (p.ts - prev.ts) * f;
+          break;
+        }
+        prev = { ts: p.ts, s };
+      }
+    }
+
+    // Confidence still reflects how close the boat actually got to the mark —
+    // a crossing 200 m wide of the mark is a leg-completion, not a rounding.
+    const conf = cpaD < 20 ? 'HIGH' : cpaD < RM_CFG.MARK_PASS_RADIUS_M ? 'MEDIUM' : 'LOW';
+    result[sail] = { markTime: crossTs != null ? crossTs : cpaTs,
+                     minDist: Math.round(cpaD), conf,
+                     method: crossTs != null ? 'perpendicular' : 'closest-approach' };
   }
   return result;
 }
@@ -1788,7 +1825,7 @@ function findReachMark(tracks, gunTs, WWGATE, LWGATE, MID){
   if(!rmLat) return null; // complete failure
 
   // F) Per-boat reach mark times
-  const reachTimesNew = computeReachTimes(tracks, rmLat, rmLon, GUN);
+  const reachTimesNew = computeReachTimes(tracks, rmLat, rmLon, GUN, PIN?.lat, PIN?.lon);
 
   // Build result compatible with existing code
   const rm = {
@@ -2818,26 +2855,29 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
   [WW_A, WW_B, WWGATE] = resolveGate(wwSns, 'WW');
   [LW_A, LW_B, LWGATE] = resolveGate(lwSns, 'LW');
 
-  // Reach mark: use the configured SN when it is on the water.
-  const RM_SN  = GATE_SNS.REACH_SN;
-  // NOTE: computeReachTimes() normally runs inside findReachMark(). Taking the
-  // configured position short-circuits that call, so the rounding times have to
-  // be computed here too — without this, every dur is null, the hybrid ordering
-  // silently falls back to the T+50 proxy, and the configured mark makes the
-  // reach order WORSE rather than better.
-  const RM_CFGPOS = (RM_SN != null && markPos[RM_SN])
-    ? { lat: markPos[RM_SN].lat, lon: markPos[RM_SN].lon,
-        boat_lat: markPos[RM_SN].lat, boat_lon: markPos[RM_SN].lon,
-        conf: 'HIGH', fromConfig: true, sn: RM_SN,
-        reachTimes: computeReachTimes(tracks, markPos[RM_SN].lat, markPos[RM_SN].lon, gunTs) }
-    : null;
-  
   // RC and PIN
   let RC, PIN;
   for(const sn of GATE_SNS.RC_SNS){
     if(markPos[sn]){ RC = markPos[sn]; break; }
   }
   if(markPos[GATE_SNS.PIN_SN]) PIN = markPos[GATE_SNS.PIN_SN];
+
+  // Reach mark: use the configured SN when it is on the water.
+  // Must come AFTER RC/PIN are resolved — the reach times are timed off the
+  // perpendicular through the mark square to the pin->mark axis, so the pin
+  // position has to exist before computeReachTimes() is called.
+  const RM_SN  = GATE_SNS.REACH_SN;
+  // NOTE: computeReachTimes() normally runs inside findReachMark(). Taking the
+  // configured position short-circuits that call, so the rounding times have to
+  // be computed here too — without this every dur is null and the hybrid
+  // ordering silently falls back to the T+50 proxy.
+  const RM_CFGPOS = (RM_SN != null && markPos[RM_SN])
+    ? { lat: markPos[RM_SN].lat, lon: markPos[RM_SN].lon,
+        boat_lat: markPos[RM_SN].lat, boat_lon: markPos[RM_SN].lon,
+        conf: 'HIGH', fromConfig: true, sn: RM_SN,
+        reachTimes: computeReachTimes(tracks, markPos[RM_SN].lat, markPos[RM_SN].lon,
+                                      gunTs, PIN && PIN.lat, PIN && PIN.lon) }
+    : null;
 
   // Fallback: infer from tracks if marks missing
   if(!WWGATE || !LWGATE){
