@@ -2734,7 +2734,13 @@ async function loadRace(event, raceNum, gunTs, nextGunTs, progressEl){
       if(ts < gunTs-2000 || ts > gunTs+15000) continue;
       if(role !== 'competitor') continue;
       if(EXCLUDED_BOATS.includes(sail)) continue;
-      if(status === 1) ocsFromTelemetry.add(sail);
+      // Vakaros changed the status encoding between Newport July 2026 and
+      // Newport August 2026: the whole field shifted by 8, so normal went 0 -> 8
+      // and OCS went 1 -> 9. Confirmed against a known OCS (YoungBlood, NA
+      // Champs D1R1) which flips 8 -> 9 at T+0.4s and holds it. Accept both so
+      // older events keep working; spare units that idle at 9 are already
+      // removed by the EXCLUDED_BOATS check above.
+      if(status === 1 || status === 9) ocsFromTelemetry.add(sail);
     }
   }
 
